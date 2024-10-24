@@ -37,8 +37,11 @@ dependencies:
 - time
   # - parallel
 - either
-- free 
+#- free 
 - constraints
+- stm
+- gloss
+- array
   # - template-haskell
 
 ghc-options:
@@ -58,7 +61,7 @@ library:
   source-dirs: src
 
 executables:
-  TreeHash-exe:
+  Axon-space-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:

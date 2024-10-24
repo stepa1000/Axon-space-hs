@@ -24,11 +24,14 @@
           # hPkgs.cabal-install
           stack-wrapped
           pkgs.zlib # External C library needed by some Haskell packages
-          #hPkgs.OpenGL
+          hPkgs.OpenGL
           #pkgs.freeglut
-          #hPkgs.gl
+          hPkgs.gl
+	  hPkgs.GLUT
+	  hPkgs.GLUtil
           pkgs.libGL
           pkgs.libGLU
+	  pkgs.freeglut
         ];
 
         # Wrap Stack to work with our Nix integration. We don't want to modify
