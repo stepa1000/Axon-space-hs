@@ -175,7 +175,7 @@ initNeiron a0 p0 p1 = do
 type CxtAxon i w a g = 
   ( Comonad w
   , Ix i
-  , HasMapVarT i a
+  , HasMapVarT (i,i) a
   , HasNeiron a
   , Random i
   , RandomGen g
@@ -310,7 +310,32 @@ axogenesPoint tvg p@(x,y) ca w = do
 	        else do
 		writeArray arr p (set mapVarTBool (adjust (\(tvb,seti)-> (tvb, insert (lk ! ril1) seti) ) (lk ! ril0) mapA) ae)  
               
-  
+updateAxogenesPoint ::
+  ( Cxt i w a g
+  ) =>
+  (i,i) ->
+  W.AdjointT
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b -> 
+  STM ()
+updateAxogenesPoint p w = do
+  let arr = coask w
+  ppi@(xpi,ypi) <- getBounds arr
+  if not $ p >= xpi && p <= ypi then error "updateAxogenesPoint: index out of bounds"
+    else do
+      ae <- readArray arr p
+      let mapA = ae^.mapVarTBool
+      traverseWithKey (\ pk@(xk,yk) (tvbool, sp) -> do
+        traverse_ (\ pset -> do
+	    boolAxon <- readTVar tvbool
+	    let mtvbool2sp2 = lookup pset mapA
+	    mapM (\ (tvbool2,sp2) -> do
+	      writeTVar tvbool2 boolAxon
+	      ) mtvbool2sp2
+	  ) sp
+	) mapA
 
 
 
