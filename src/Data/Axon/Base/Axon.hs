@@ -36,7 +36,7 @@ adjCoDrowLineV ::
     (AdjArrayL (x,x) a)
     (AdjArrayR (x,x) a)
     w
-    a ->
+    (a -> a) ->
   STM ()
 adjCoDrowLineV (x0',y0') (x1',y1') wa = let
   (x0,x1) = if y0' > y1' then (x1',x0') else (x0',x1')
@@ -51,7 +51,8 @@ adjCoDrowLineV (x0',y0') (x1',y1') wa = let
   f _ _ _ = return ()
   f2 x p i = do
     -- traceShowM $ "VIndex: " ++ (show (x,y0 + i))
-    writeArray (coask wa) (x, y0 + i) (extract wa)
+    a0 <- readArray (coask wa) (x, y0 + i)
+    writeArray (coask wa) (x, y0 + i) ((extract wa) a0)
     if p >= 0
       then return (x+dir,p- 2*dy')
       else return (x, p + 2 * dx)
@@ -72,7 +73,7 @@ adjCoDrowLineH ::
     (AdjArrayL (x,x) a)
     (AdjArrayR (x,x) a)
     w
-    a ->
+    (a -> a) ->
   STM ()
 adjCoDrowLineH ((x0' :: x),y0') (x1',y1') wa = let
   (x0,x1) = if x0' > x1' then (x1',x0') else (x0',x1')
@@ -90,7 +91,8 @@ adjCoDrowLineH ((x0' :: x),y0') (x1',y1') wa = let
   f2 y p i = do
     -- traceShowM $ "Points: " ++ (show (x0',y0')) ++ " " (show (x1',y1'))
     --traceShowM $ "HIndex: " ++ (show (x0+i, y))
-    writeArray (coask wa) (x0+i, y) (extract wa)
+    a0 <- readArray (coask wa) (x0+i, y)   
+    writeArray (coask wa) (x0+i, y) ((extract wa) a0)
     --traceShowM $ "Post writeArray"
     --traceShowM $ "y: " ++ (show y)
     --traceShowM $ "p: " ++ (show p)
@@ -118,12 +120,15 @@ adjCoDrowLine ::
     (AdjArrayL (x,x) a)
     (AdjArrayR (x,x) a)
     w
-    a ->
+    (a -> a) ->
+    a0 <- readArray (coask wa) (x, y0 + i)
   STM ()
 adjCoDrowLine p0@(x0,y0) p1@(x1,y1) wa =
   if abs (x1 - x0) > abs (y1 - y0)
     then adjCoDrowLineH p0 p1 wa
     else adjCoDrowLineV p0 p1 wa
+
+adjCoDrowLineConst p0 p1 wa = adjCoDrowLine p0 p1 (fmap const wa) 
 
 cube :: Picture
 cube = Polygon [(0,0),(1,0),(1,1),(0,1),(0,0)]
@@ -143,3 +148,170 @@ adjCoDrowArray ::
 adjCoDrowArray f w = do
   lip <- getAssocs (coask w)
   return $ Pictures $ fmap (\((x,y),a)-> Translate (realToFrac x) (realToFrac y) $ f a ) lip
+
+class HasMapVarT i a where
+  mapVarTBool :: Lens' a (Map i (TVar Bool, Set i))
+
+class HasNeiron a where
+  neiron :: Lans' a (TVar Bool)
+
+initNeiron :: 
+  ( Ix i
+  , HasMapVarT i a
+  , HasNeiron a
+  ) =>
+  a ->
+  (i,i) ->
+  (i,i) ->
+  IO (TArray (i,i) a)
+initNeiron a0 p0 p1 = do
+  let li = range p0 p1
+  la <- mapM (\i-> do
+    tvN <- newTVarIO False
+    return ((set mapVarTBool empty . set neiron tvN) a0)
+    ) li
+  newListArray (p0,p1) la
+
+type CxtAxon i w a g = 
+  ( Comonad w
+  , Ix i
+  , HasMapVarT i a
+  , HasNeiron a
+  , Random i
+  , RandomGen g
+  )
+
+type NeirobPoint i = (i,i)
+
+lineAxon1 ::
+  ( CxtAxon i w a g
+  ) =>
+  NeironPoin i ->
+  (i,i) ->
+  (i,i) ->
+  W.AdjoinT 
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b
+  -> STM ()
+lineAxon1 pn p0 p1 w = do
+  let arr = coask w
+  an <- readArray arr pn
+  let tvAxonN = an^.neiron
+  adjCoDrowLine p0 p1 (fmap (const (\ a-> let
+    mapTV = a^.mapVarTBool
+    in set mapVarTBool (insert pn (tvAxonN, empty)) a
+    )) w)
+
+randomAxon :: 
+  ( CxtAxon i w a g
+  ) =>
+  NeironPoint i ->
+  (i,i) ->
+  (i,i) ->
+  W.AdjointT
+    (AdjArrayL (i,i) a)
+    (AdjArrayR) (i,i) a)
+    w
+    b
+  -> IO (i,i)
+randomAxon pn p0 p1 w = do
+  let arr = coask w
+  ppi@(xpi,ypi) <- getBounds arr -- ???
+  if not $ p0 >= xpi && p1 <= ypi then error "randomAxon index bound error"
+    else do
+      rpi <- randomRIO (p0,p1)
+      atomically $ lineAxon1 pn pn rpi w
+      return rpi
+
+randomAxoninBox ::
+  ( CxtAxon i w a g
+  ) =>
+  NeironPoint i ->
+  i ->
+  W.AsjointT
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b -> 
+  IO (i,i)
+randomAxonBox np@(xn,yn) r w = do
+  let arr = coask w
+  let p0@(x0,y0) = (xn - r, yn - r)
+  let p1@(x1,y1) = (xn + r, yn + r)
+  ppi@(xpi,ypi) <- getBounds arr -- ???
+  if p0b = if p0 >= xpi && p0 <= ypi then p0 else xpi
+  if p1b = if p1 >= xpi && p1 <= ypi then p1 else ypi
+  randomAxon np p0b p1b w
+
+initAxonForNeironBox ::
+  ( CxtAxon i w a g
+  ) =>
+  i ->
+  W.AdjointT 
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b -> 
+  IO [(NeironPoint,(i,i))]
+initAxonForNeironBox r w = do
+  let arr = coask w
+  ppi@(xpi,ypi) <- getBounds arr
+  let allN = range ppi
+  mapConcurrently (\i->do
+    ia <- randomAxonBox i r w
+    return (i,ia)
+    ) allN
+
+type ChanceAxon = Int
+
+randomRSTM :: 
+  ( RandomGen g
+  , Random a
+  ) =>
+  TVar g ->
+  (a,a) ->
+  STM a
+randomRSTM tvg pa -> do
+  g <- readTVar tvg
+  let (a,ng) = randomR pa g
+  writeTVar tvg ng
+
+axogenesPoint :: 
+  ( CxtAxon i w a g 
+  ) =>
+  TVar g ->
+  (i,i) ->
+  ChanceAxon ->
+  W.AdjointT
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b
+  -> STM ()
+axogenesPoint tvg p@(x,y) ca w = do
+  let arr = coask w
+  ppi@(xpi,ypi) <- getBounds arr
+  if not $ p >= xpi && p <= ypi then error "axogenesPoint: index out of bounds in array"
+    else do
+      cha <- randomRSTM tvg (0,ca)
+      if cha /= 0 then return ()
+        else do
+	  ae <- readArray arr p
+	  let mapA = ae^.mapVarTBool
+	  let lk = keys mapA
+	  let ll = length lk
+	  if ll > 1 then return () 
+	    else do 
+	      ril0 <- randomRSTM tvg (1,ll)
+	      ril1 <- randomRSTM tvg (1,ll)
+	      if ril0 == ril1 then return ()
+	        else do
+		writeArray arr p (set mapVarTBool (adjust (\(tvb,seti)-> (tvb, insert (lk ! ril1) seti) ) (lk ! ril0) mapA) ae)  
+              
+  
+
+
+
+
