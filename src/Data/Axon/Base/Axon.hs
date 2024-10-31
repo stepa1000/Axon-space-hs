@@ -337,6 +337,45 @@ updateAxogenesPoint p w = do
 	  ) sp
 	) mapA
 
+clearNeironPoint ::
+  ( Cxt i w a g
+  ) =>
+  (i,i) ->
+  W.AdjointT
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b ->
+  STM ()
+clearNeironPoint p w = do
+  let arr = coask w
+  ppi@(xpi,ypi) <- getBounds arr
+  if not $ p >= xpi && p <= ypi then error "updateAxogenesPoint: index out of bounds"
+    else do
+      ae <- readArray arr p
+      let tvneir = ae^.neiron
+      writeTVar tvneir False
 
+clearAxoginesPoint ::
+  ( Cxt i w a g
+  ) =>
+  (i,i) ->
+  W.AdjointT
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b ->
+  STM ()
+clearAxoginesPoint p w = do
+  let arr = coask w
+  ppi@(xpi,ypi) <- getBounds arr
+  if not $ p >= xpi && p <= ypi then error "updateAxogenesPoint: index out of bounds"
+    else do
+      ae <- readArray arr p
+      let mapA = ae^.mapVarTBool
+      traverseWithKey (\ pk@(xk,yk) (tvbool, sp) -> do
+        writeTVar tvbool False
+	) mapA
+ 
 
 
