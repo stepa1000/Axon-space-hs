@@ -376,6 +376,44 @@ clearAxoginesPoint p w = do
       traverseWithKey (\ pk@(xk,yk) (tvbool, sp) -> do
         writeTVar tvbool False
 	) mapA
- 
 
-
+updateIn2Radius ::
+  ( Cxt i w a g
+  ) =>
+  Float ->
+  Float ->
+  (i,i) ->
+  ( (i,i) -> 
+    W.AdjointT
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+    STM ()
+  ) ->
+  W.AdjointT 
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b ->
+  IO ()
+updateIn2Radius r1' r2' p f w = do
+  let arr = coask w
+  ppi@(xpi,ypi) <- getBounds arr
+  -- (x - x0)^2 + (y - y0)^2 = r^2
+  let r1 = if r1' > r2' then r2' else r1'
+  let r2 = if r1' > r2' then r1' else r2'
+  let intr2 = fromIntegral r2
+  let intr1 = fromIntegral r1 -- r1 < r2
+  let (xb1,yb1) = xpi
+  let (xb2,yb2) = ypi -- xpi < ypi ???????!!!!!!!!!!!!
+  let (x0,y0) = p
+  let rw = rangeSize (y0,yb2)
+  let rd = rangeSize (x0,xb2)
+  let rs = rangeSize (y0,yb1)
+  let ra = rangeSize (x0,xb1)
+  let vrw = rw - intr2
+  let vrd = rd - intr2
+  let vrs = rs - intr2
+  let vra = ra - intr2
+  let xr = if vrd < 0 then xb2 else (range (x0,xb2)) !! 
