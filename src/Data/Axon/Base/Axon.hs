@@ -416,4 +416,21 @@ updateIn2Radius r1' r2' p f w = do
   let vrd = rd - intr2
   let vrs = rs - intr2
   let vra = ra - intr2
-  let xr = if vrd < 0 then xb2 else (range (x0,xb2)) !! 
+  let xr2 = if vrd < 0 then xb2 else ((range (x0,xb2)) !! inter2)
+  let ys2 = if vrs < 0 then yd1 else ((range (y0,yd1)) !! inter2)
+  let xl2 = if vra < 0 then xd1 else ((range (x0,xd1)) !! inter2)
+  let yw2 = if vrw < 0 then yd2 else ((range (y0,yd2)) !! inter2)
+  -- sqrt (x + y) = r => x^2 + y^2 = r^2
+  -- 2*a^2 = r^2
+  -- a^2 = (r^2) / 2
+  -- a = sqrt ((r^2) / 2)
+  let a = sqrt ((intr1^2) / 2)
+  let vrw2 = rw - a
+  let vrd2 = rd - a
+  let vrs2 = rs - a
+  let vra2 = ra - a
+
+
+
+  --where
+  --  fif
