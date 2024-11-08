@@ -377,11 +377,11 @@ clearAxoginesPoint p w = do
         writeTVar tvbool False
 	) mapA
 
-updateIn2Radius ::
+updateIn2Box ::
   ( Cxt i w a g
   ) =>
-  Float ->
-  Float ->
+  Float -> -- ???? Int
+  Float -> -- ????? Int
   (i,i) ->
   ( (i,i) -> 
     W.AdjointT
@@ -397,7 +397,7 @@ updateIn2Radius ::
     w
     b ->
   IO ()
-updateIn2Radius r1' r2' p f w = do
+updateIn2Box r1' r2' p f w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr
   -- (x - x0)^2 + (y - y0)^2 = r^2
@@ -429,6 +429,18 @@ updateIn2Radius r1' r2' p f w = do
   let vrd2 = rd - a
   let vrs2 = rs - a
   let vra2 = ra - a
+  let yw1 = if vrw2 < 0 then yb2 else ((range (y0,yd2)) !! a)
+  let xr1 = if vrd2 < 0 then xb2 else ((range (x0,xb2)) !! a)
+  let ys1 = if vrs2 < 0 then yb1 else ((range (y0,yb1)) !! a)
+  let xl1 = if vra2 < 0 then xb1 else ((range (x0,xb1)) !! a)
+  let dyyw = range (yw1,yw2)
+  let dxxd = range (xr1,xr2)
+  let dyys = range (ys1,ys2)
+  let dxxa = range (xl1,xl2)
+  let pwwd = liftA2 (,) (range (x0,xr1)) dyyw
+  let pwwdd = liftA2 (,) xxd dyyw
+
+
 
 
 
