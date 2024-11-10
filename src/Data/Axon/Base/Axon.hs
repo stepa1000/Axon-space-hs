@@ -438,7 +438,15 @@ updateIn2Box r1' r2' p f w = do
   let dyys = range (ys1,ys2)
   let dxxa = range (xl1,xl2)
   let pwwd = liftA2 (,) (range (x0,xr1)) dyyw
-  let pwwdd = liftA2 (,) xxd dyyw
+  let pwwdd = liftA2 (,) dxxd dyyw
+  let pwdd = lifrA2 (,) dxxd (range (y0,yw1))
+  let psdd = liftA2 (,) dxxd (range (y0,ys1))
+  let pssdd = liftA2 (,) dxxd dyys
+  let pssd = liftA2 (,) (range (x0,xr1)) dyys
+  let pssa = liftA2 (,) (range (x0,xl1)) dyys
+  let pssaa = liftA2 (,) dxxa dyys
+  let psaa = liftA2 (,) dxxa (range (y0,ys1))
+  let pwaa = liftA2 (,) dxxa (range (y0,yw1))
 
 
 
