@@ -447,7 +447,13 @@ updateIn2Box r1' r2' p f w = do
   let pssaa = liftA2 (,) dxxa dyys
   let psaa = liftA2 (,) dxxa (range (y0,ys1))
   let pwaa = liftA2 (,) dxxa (range (y0,yw1))
-
+  let pwwaa = liftA2 (,) dxxa dyyw
+  let pwwa = liftA2 (,) (range (x0,xl1)) dyyw
+  let in2BS = pwwd ++ pwwdd ++ pwdd ++ psdd ++ pssdd ++ pssd ++ pssa ++ pssaa ++ psaa ++ pwaa ++ ppwwaa ++ pwwa
+  forConcurrently_ in2BS (\pi-> do
+    atomically $ do
+      f pi w
+    )
 
 
 
