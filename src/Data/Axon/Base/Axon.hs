@@ -465,7 +465,18 @@ redredin2Box ::
   STM ()
 redredin2Box p w = do
   let arr = coask w
-  
+  writeArray arr p (Color red $ cube)
 
-
+updateIn2BoxRedPic ::
+  Float ->
+  Float ->
+  (Int,Int) ->
+  W.AdjointT
+    (AdjArrayL (Int,Int) Picture)
+    (AdjArrayR (Int,Int) Picture)
+    Identity
+    () ->
+  IO ()
+updateIn2BoxRedPic r1 r2 p w = do
+  updateIn2Box r1 r2 p redredin2Box w
 
