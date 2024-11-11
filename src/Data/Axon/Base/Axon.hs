@@ -455,8 +455,17 @@ updateIn2Box r1' r2' p f w = do
       f pi w
     )
 
+redredin2Box :: 
+  (Int, Int) ->
+  W.AdjointT
+    (AdjArrayL (Int,Int) Picture)
+    (AdjArrayR (Int,Int) Picture)
+    Identity
+    () ->
+  STM ()
+redredin2Box p w = do
+  let arr = coask w
+  
 
 
 
-  --where
-  --  fif
