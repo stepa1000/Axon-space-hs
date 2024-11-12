@@ -9,6 +9,21 @@ import Control.Base.Comonad
 import Data.Functor.Identity
 
 main = do
+  arr <- initialArray
+  let w = initialComonad arr
+  pic <- updateIn2BoxRedPic 4 11 (50,50) w
+  initialDisplay pic
+
+initialDisplay pic = display
+  (InWindow "test" (100,100) (0,0))
+  black 
+  pic 
+
+initialComonad arr = adjEnv arr (Identity ())
+
+initialArray = newArray ((0,0),(100,100)) (Color black cube)
+
+main1 = do
   arr <- newArray ((0,0),(100,100)) (Color black cube)
   let w = adjEnv arr (Identity ()) 
   pic <- atomically $ do
@@ -17,5 +32,5 @@ main = do
     adjCoDrowArray id w
   display 
     (InWindow "test" (100,100) (0,0))
-    black
+    black 
     pic
