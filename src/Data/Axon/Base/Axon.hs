@@ -1,5 +1,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 module Data.Axon.Base.Axon where
 
@@ -17,6 +20,10 @@ import Control.Monad.Reader
 import Control.Comonad.Trans.Adjoint as W
 import Data.Array.MArray
 import Debug.Trace
+import Control.Lens
+import System.Random
+import Data.Map as Map
+import Data.Set as Set
 
 -- Array
 
@@ -121,7 +128,7 @@ adjCoDrowLine ::
     (AdjArrayR (x,x) a)
     w
     (a -> a) ->
-    a0 <- readArray (coask wa) (x, y0 + i)
+    -- a0 <- readArray (coask wa) (x, y0 + i)
   STM ()
 adjCoDrowLine p0@(x0,y0) p1@(x1,y1) wa =
   if abs (x1 - x0) > abs (y1 - y0)
@@ -150,10 +157,10 @@ adjCoDrowArray f w = do
   return $ Pictures $ fmap (\((x,y),a)-> Translate (realToFrac x) (realToFrac y) $ f a ) lip
 
 class HasMapVarT i a where
-  mapVarTBool :: Lens' a (Map i (TVar Bool, Set i))
+  mapVarTBool :: Lens' a (Map.Map i (TVar Bool, Set.Set i))
 
 class HasNeiron a where
-  neiron :: Lans' a (TVar Bool)
+  neiron :: Lens' a (TVar Bool)
 
 initNeiron :: 
   ( Ix i
@@ -165,10 +172,10 @@ initNeiron ::
   (i,i) ->
   IO (TArray (i,i) a)
 initNeiron a0 p0 p1 = do
-  let li = range p0 p1
+  let li = range (p0,p1)
   la <- mapM (\i-> do
     tvN <- newTVarIO False
-    return ((set mapVarTBool empty . set neiron tvN) a0)
+    return ((set mapVarTBool Map.empty . set neiron tvN) a0)
     ) li
   newListArray (p0,p1) la
 
@@ -181,15 +188,15 @@ type CxtAxon i w a g =
   , RandomGen g
   )
 
-type NeirobPoint i = (i,i)
+type NeironPoint i = (i,i)
 
 lineAxon1 ::
   ( CxtAxon i w a g
   ) =>
-  NeironPoin i ->
+  NeironPoint i ->
   (i,i) ->
   (i,i) ->
-  W.AdjoinT 
+  W.AdjointT 
     (AdjArrayL (i,i) a)
     (AdjArrayR (i,i) a)
     w
@@ -201,7 +208,7 @@ lineAxon1 pn p0 p1 w = do
   let tvAxonN = an^.neiron
   adjCoDrowLine p0 p1 (fmap (const (\ a-> let
     mapTV = a^.mapVarTBool
-    in set mapVarTBool (insert pn (tvAxonN, empty)) a
+    in set mapVarTBool (Map.insert pn (tvAxonN, Set.empty)) a
     )) w)
 
 randomAxon :: 
@@ -212,7 +219,7 @@ randomAxon ::
   (i,i) ->
   W.AdjointT
     (AdjArrayL (i,i) a)
-    (AdjArrayR) (i,i) a)
+    (AdjArrayR (i,i) a)
     w
     b
   -> IO (i,i)
@@ -230,19 +237,19 @@ randomAxoninBox ::
   ) =>
   NeironPoint i ->
   i ->
-  W.AsjointT
+  W.AdjointT
     (AdjArrayL (i,i) a)
     (AdjArrayR (i,i) a)
     w
     b -> 
   IO (i,i)
-randomAxonBox np@(xn,yn) r w = do
+randomAxoninBox np@(xn,yn) r w = do
   let arr = coask w
   let p0@(x0,y0) = (xn - r, yn - r)
   let p1@(x1,y1) = (xn + r, yn + r)
   ppi@(xpi,ypi) <- getBounds arr -- ???
-  if p0b = if p0 >= xpi && p0 <= ypi then p0 else xpi
-  if p1b = if p1 >= xpi && p1 <= ypi then p1 else ypi
+  let p0b = if p0 >= xpi && p0 <= ypi then p0 else xpi
+  let p1b = if p1 >= xpi && p1 <= ypi then p1 else ypi
   randomAxon np p0b p1b w
 
 initAxonForNeironBox ::
@@ -254,7 +261,7 @@ initAxonForNeironBox ::
     (AdjArrayR (i,i) a)
     w
     b -> 
-  IO [(NeironPoint,(i,i))]
+  IO [(NeironPoint i,(i,i))]
 initAxonForNeironBox r w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr
@@ -273,7 +280,7 @@ randomRSTM ::
   TVar g ->
   (a,a) ->
   STM a
-randomRSTM tvg pa -> do
+randomRSTM tvg pa = do
   g <- readTVar tvg
   let (a,ng) = randomR pa g
   writeTVar tvg ng
@@ -308,10 +315,10 @@ axogenesPoint tvg p@(x,y) ca w = do
 	      ril1 <- randomRSTM tvg (1,ll)
 	      if ril0 == ril1 then return ()
 	        else do
-		writeArray arr p (set mapVarTBool (adjust (\(tvb,seti)-> (tvb, insert (lk ! ril1) seti) ) (lk ! ril0) mapA) ae)  
+		writeArray arr p (set mapVarTBool (adjust (\(tvb,seti)-> (tvb, Set.insert (lk ! ril1) seti) ) (lk ! ril0) mapA) ae)  
               
 updateAxogenesPoint ::
-  ( Cxt i w a g
+  ( CxtAxon i w a g
   ) =>
   (i,i) ->
   W.AdjointT
@@ -330,7 +337,7 @@ updateAxogenesPoint p w = do
       traverseWithKey (\ pk@(xk,yk) (tvbool, sp) -> do
         traverse_ (\ pset -> do
 	    boolAxon <- readTVar tvbool
-	    let mtvbool2sp2 = lookup pset mapA
+	    let mtvbool2sp2 = Map.lookup pset mapA
 	    mapM (\ (tvbool2,sp2) -> do
 	      writeTVar tvbool2 boolAxon
 	      ) mtvbool2sp2
@@ -338,7 +345,7 @@ updateAxogenesPoint p w = do
 	) mapA
 
 clearNeironPoint ::
-  ( Cxt i w a g
+  ( CxtAxon i w a g
   ) =>
   (i,i) ->
   W.AdjointT
@@ -357,7 +364,7 @@ clearNeironPoint p w = do
       writeTVar tvneir False
 
 clearAxoginesPoint ::
-  ( Cxt i w a g
+  ( CxtAxon i w a g
   ) =>
   (i,i) ->
   W.AdjointT
@@ -378,7 +385,7 @@ clearAxoginesPoint p w = do
 	) mapA
 
 updateIn2Box ::
-  ( Cxt i w a g
+  ( CxtAxon i w a g
   ) =>
   Float -> -- ???? Int
   Float -> -- ????? Int

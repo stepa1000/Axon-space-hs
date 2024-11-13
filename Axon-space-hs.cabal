@@ -48,6 +48,7 @@ library
     , fgl-visualize
     , gloss
     , hashable
+    , lens
     , mtl
     , random
     , stm
@@ -80,6 +81,7 @@ executable Axon-space-exe
     , fgl-visualize
     , gloss
     , hashable
+    , lens
     , mtl
     , random
     , stm
@@ -113,6 +115,7 @@ test-suite TreeHash-test
     , fgl-visualize
     , gloss
     , hashable
+    , lens
     , mtl
     , random
     , stm

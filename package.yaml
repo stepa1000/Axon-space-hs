@@ -42,6 +42,7 @@ dependencies:
 - stm
 - gloss
 - array
+- lens
   # - template-haskell
 
 ghc-options:

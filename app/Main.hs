@@ -7,6 +7,8 @@ import Graphics.Gloss.Interface.Pure.Display
 import Data.Array.MArray
 import Control.Base.Comonad
 import Data.Functor.Identity
+import Data.Map as Map
+import Data.Set as Set
 
 main = do
   arr <- initialArray
