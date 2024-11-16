@@ -31,6 +31,7 @@ type AdjArrayL i a = Env (TArray i a)
 
 type AdjArrayR i a = Reader (TArray i a)
 
+-- | 
 adjCoDrowLineV :: 
   ( Comonad w  
   , Ix x
