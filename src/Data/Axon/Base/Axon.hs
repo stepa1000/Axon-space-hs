@@ -511,3 +511,34 @@ updateIn2BoxRedPic ::
 updateIn2BoxRedPic r1 r2 p w = do
   updateIn2Box r1 r2 p redredin2Box w
 
+updateIn2Radius :: 
+  ( Comonad w-- CxtAxon i w a g
+  , Ix i
+  ) =>
+  Float -> -- ???? Int
+  Float -> -- ????? Int
+  (i,i) ->
+  ( (i,i) -> 
+    W.AdjointT
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+    STM ()
+  ) ->
+  W.AdjointT 
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b ->
+  IO ()
+updateIn2Radius r1 r2 p0@(x0,y0) f w = do
+  updateIn2Box r1 r2 p0
+    (\ ip@(xi,yi) w -> do
+      let rv = abs (xi - x0) + abs (yi - y0) 
+      if (rv > (round r1)) && (rv < (round r2)) 
+        then do
+	  f ip w
+	else return ()
+    ) 
+    w
