@@ -43,6 +43,7 @@ dependencies:
 - gloss
 - array
 - lens
+- async
   # - template-haskell
 
 ghc-options:

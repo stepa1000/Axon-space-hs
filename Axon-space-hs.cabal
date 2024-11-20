@@ -38,6 +38,7 @@ library
     , adjunctions
     , aeson
     , array
+    , async
     , base >=4.19 && <5
     , bytestring
     , comonad
@@ -71,6 +72,7 @@ executable Axon-space-exe
     , adjunctions
     , aeson
     , array
+    , async
     , base >=4.19 && <5
     , bytestring
     , comonad
@@ -105,6 +107,7 @@ test-suite TreeHash-test
     , adjunctions
     , aeson
     , array
+    , async
     , base >=4.19 && <5
     , bytestring
     , comonad
