@@ -332,8 +332,35 @@ axogenesPoint tvg p@(x :: i,y) ca w = do
 	      ril1 <- randomRSTM tvg (1,ll)
 	      if ril0 == ril1 then return ()
 	        else do
-		writeArray arr p (set (mapVarTBool @(i,i)) (adjust (\(tvb,seti)-> (tvb, Set.insert (lk !! ril1) seti) ) (lk !! ril0) mapA) ae)  
-              
+		writeArray arr p 
+		   ( set 
+		        (mapVarTBool @(i,i)) 
+			( adjust 
+			     (\(tvb,seti)-> (tvb, Set.insert (lk !! ril1) seti) ) -- Maybe all order, nit ine side
+			     (lk !! ril0) 
+			     mapA) 
+			ae)  
+
+allAxogenesPoint :: 
+  ( CxtAxon i w a g 
+  ) =>
+  TVar g ->
+  ChanceAxon ->
+  W.AdjointT
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b
+  -> IO ()
+allAxogenesPoint tvg ca w = do
+  let arr = coask w
+  ppi@(xpi,ypi) <- getBounds arr
+  let allN = range ppi
+  mapConcurrently (\i->do
+    ia <- atomically $ axogenesPoint tvg i ca w
+    return (i,ia)
+    ) allN
+
 updateAxogenesPoint ::
   ( CxtAxon i w a g
   ) =>
@@ -352,15 +379,17 @@ updateAxogenesPoint (p :: (i,i)) w = do
       ae <- readArray arr p
       let mapA = ae^.(mapVarTBool @(i,i))
       _ <- traverseWithKey (\ pk@(xk,yk) (tvbool, sp) -> do
-         foldlM (\ pset _ -> do
+         foldlM (\ () pset -> do -- pset
 	    boolAxon <- readTVar tvbool
 	    let mtvbool2sp2 = Map.lookup pset mapA
 	    mapM (\ (tvbool2,sp2) -> do
-	      writeTVar tvbool2 boolAxon
+	      if boolAxon 
+	         then writeTVar tvbool2 boolAxon
+		 else return ()
 	      ) mtvbool2sp2
-	    return undefined -- (snd mtvbool2sp2)
+	    return () -- (snd mtvbool2sp2)
          -- return undefined
-	  ) undefined sp
+	  ) () sp
 	) mapA
       return ()
 
@@ -542,3 +571,6 @@ updateIn2Radius r1 r2 p0@(x0,y0) f w = do
 	else return ()
     ) 
     w
+
+updateIn2RUpAxogenesPoint r1 r2 p0 w = 
+   updateIn2Radius r1 r2 p0 updateAxogenesPoint w
