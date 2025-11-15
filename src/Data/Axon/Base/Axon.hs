@@ -579,13 +579,72 @@ updateIn2RUpAxogenesPoint r1 r2 p0 w =
 updateIn2RUpClearAxoginesPoint r1 r2 p0 w = 
    updateIn2Radius r1 r2 p0 clearAxoginesPoint w
 
-upIn2RUpAxoginesPWave :: 
+waveInterval ::
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   ) => 
    Float ->
    (i,i) ->
+   ( Float ->
+     Float ->
+     (i,i) ->
+     W.AdjointT 
+        (AdjArrayL (i,i) a)
+        (AdjArrayR (i,i) a)
+        w
+     b ->
+     IO ()
+   ) -> 
    W.AdjointT 
       (AdjArrayL (i,i) a)
       (AdjArrayR (i,i) a)
       w
       b ->
    IO ()
-upIn2RUpAxoginesPWave rA p0 w =
+waveInterval rA p0 f w = do
+   let arr = coask w
+   ppi@(xpi,ypi) <- getBounds arr 
+   let arrR = sqrt ((fromIntegral xpi) ^ 2 + (fromIntegral ypi) ^ 2) 
+   let l1 = [0,rA .. arrR]
+   let l2 = [rA, rA * 2 .. arrR]
+   mapM (\(x,y) -> f x y p0 w) (zip l1 l2) 
+
+upIn2RUpAxoginesPWave rA p0 w = waveInterval rA p0 updateIn2RUpAxogenesPoint 
+
+type DendritPatern i = Set (i,i)
+
+generateDendritPatern :: 
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   ) => 
+   TVar g ->
+   (i,i) ->
+   i ->
+   Int -> 
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   STM (DendritPatern i)
+generateDendritPatern g p0@(px,py) r w k = do
+   let arr = coask w
+   ppi@(xpi,ypi) <- getBounds arr
+   if not $ and [(px - r, py - r) >= xpi, (px + r, py + r) <= ypi] 
+      then error "updateAxogenesPoint: index out of bounds" 
+      else do
+         let pxA = px - r
+	 let pyA = py - r
+	 let pxB = px + r
+	 let pyB = py + r
+	 fmap fold $ mapM (\i-> do
+            p <- randomRSTM g ((pxA,pyA),(pxB,pyB))
+            return $ Set.singleton p
+	    ) (0..k)
+         
+         
+
