@@ -287,7 +287,7 @@ initAxonForNeironBox pyx r w = do
     return (i,ia)
     ) allN
 
-type ChanceAxon = Int
+type ChanceAxon = (Int,Int)
 
 randomRSTM :: 
   ( RandomGen g
@@ -314,13 +314,13 @@ axogenesPoint ::
     w
     b
   -> STM ()
-axogenesPoint tvg p@(x :: i,y) ca w = do
+axogenesPoint tvg p@(x :: i,y) (minca,ca) w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr
   if not $ p >= xpi && p <= ypi then error "axogenesPoint: index out of bounds in array"
     else do
       cha <- randomRSTM tvg (0,ca)
-      if cha /= 0 then return ()
+      if cha <= minca then return ()
         else do
 	  ae <- readArray arr p
 	  let mapA = ae^.(mapVarTBool @(i,i))
