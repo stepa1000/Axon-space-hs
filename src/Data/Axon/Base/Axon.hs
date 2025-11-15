@@ -302,7 +302,7 @@ randomRSTM tvg pa = do
   writeTVar tvg ng
   return a
 
-axogenesPoint :: 
+initAxogenesPoint :: 
   ( CxtAxon i w a g 
   ) =>
   TVar g ->
@@ -314,7 +314,7 @@ axogenesPoint ::
     w
     b
   -> STM ()
-axogenesPoint tvg p@(x :: i,y) (minca,ca) w = do
+initAxogenesPoint tvg p@(x :: i,y) (minca,ca) w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr
   if not $ p >= xpi && p <= ypi then error "axogenesPoint: index out of bounds in array"
@@ -357,7 +357,7 @@ allAxogenesPoint tvg ca w = do
   ppi@(xpi,ypi) <- getBounds arr
   let allN = range ppi
   mapConcurrently (\i->do
-    ia <- atomically $ axogenesPoint tvg i ca w
+    ia <- atomically $ initAxogenesPoint tvg i ca w
     return (i,ia)
     ) allN
 
@@ -574,3 +574,18 @@ updateIn2Radius r1 r2 p0@(x0,y0) f w = do
 
 updateIn2RUpAxogenesPoint r1 r2 p0 w = 
    updateIn2Radius r1 r2 p0 updateAxogenesPoint w
+
+
+updateIn2RUpClearAxoginesPoint r1 r2 p0 w = 
+   updateIn2Radius r1 r2 p0 clearAxoginesPoint w
+
+upIn2RUpAxoginesPWave :: 
+   Float ->
+   (i,i) ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO ()
+upIn2RUpAxoginesPWave rA p0 w =
