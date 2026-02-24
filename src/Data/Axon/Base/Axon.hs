@@ -379,17 +379,23 @@ updateAxogenesPoint (p :: (i,i)) w = do
       ae <- readArray arr p
       let mapA = ae^.(mapVarTBool @(i,i))
       _ <- traverseWithKey (\ pk@(xk,yk) (tvbool, sp) -> do
-         foldlM (\ () pset -> do -- pset
-	    boolAxon <- readTVar tvbool
+         boolAxon <- readTVar tvbool
+         setBool <- foldlM (\ () pset -> do -- pset
+	    -- boolAxon <- readTVar tvbool
 	    let mtvbool2sp2 = Map.lookup pset mapA
-	    mapM (\ (tvbool2,sp2) -> do
+	    bool2 <- fmap (maybe False id) $ mapM (\ (tvbool2,sp2) -> do
+	      bool2 <- readTVar tvbool2
 	      if boolAxon 
-	         then writeTVar tvbool2 boolAxon
-		 else return ()
+	         then do 
+		    writeTVar tvbool2 boolAxon
+		    return bool2
+		 else return bool2
 	      ) mtvbool2sp2
-	    return () -- (snd mtvbool2sp2)
+	    return bool2 -- (snd mtvbool2sp2)
          -- return undefined
-	  ) () sp
+	    ) () sp
+	 let reBool = foldl || False setBool
+	 writeTVar tvbool reBool
 	) mapA
       return ()
 
