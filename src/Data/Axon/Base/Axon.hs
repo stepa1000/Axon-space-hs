@@ -652,5 +652,52 @@ generateDendritPatern g p0@(px,py) r w k = do
             return $ Set.singleton p
 	    ) (0..k)
          
+writeDendritPatern :: 
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   ) => 
+   DendritPatern i ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   STM Bool
+writeDendritPatern dp w = do
+   let arr = coask w
+   ppi@(xpi,ypi) <- getBounds arr
+   mapM (\ pi -> 
+      a <- readArray arr pi 
+      tvBool <- a^.neiron
+      writeTVar tvBool true  
+      ) dp
+   
+readDendritPatern :: 
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   ) => 
+   DendritPatern i ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   STM Bool
+readDendritPatern dp w = do
+   let arr = coask w
+   ppi@(xpi,ypi) <- getBounds arr
+   foldlM (\ bn pi -> 
+      a <- readArray arr pi 
+      tvBool <- a^.neiron
+      b <- readTVar tvBool true
+      return $ b && bn
+      ) True dp
+         
          
 
