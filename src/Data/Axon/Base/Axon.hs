@@ -30,6 +30,7 @@ import Control.Concurrent.Async
 import Data.Traversable
 import Data.Foldable
 import Data.Proxy
+import Data.UUID
 
 -- Array
 
@@ -626,6 +627,7 @@ generateDendritPatern ::
    , Num i
    , RandomGen g
    , Random i
+   , CxtAxon i w a g
    ) => 
    TVar g ->
    (i,i) ->
@@ -658,6 +660,7 @@ writeDendritPatern ::
    , Num i
    , RandomGen g
    , Random i
+   , CxtAxon i w a g
    ) => 
    DendritPatern i ->
    W.AdjointT 
@@ -681,23 +684,114 @@ readDendritPatern ::
    , Num i
    , RandomGen g
    , Random i
+   , CxtAxon i w a g
    ) => 
-   DendritPatern i ->
+   -- DendritPatern i ->
    W.AdjointT 
       (AdjArrayL (i,i) a)
       (AdjArrayR (i,i) a)
       w
       b ->
-   STM Bool
-readDendritPatern dp w = do
+   STM (DendritPatern i)
+readDendritPatern {-dp-} w = do
    let arr = coask w
    ppi@(xpi,ypi) <- getBounds arr
    foldlM (\ bn pi -> 
       a <- readArray arr pi 
       tvBool <- a^.neiron
       b <- readTVar tvBool true
-      return $ b && bn
-      ) True dp
+      return $ bn <> (Set.singleton pi)
+      ) Set.empty dp
          
-         
+class HasMemory a i where
+  -- reactionTo :: [TArray Int (Maybe (DendritPatern i))] 
+  rectiom :: [TArray Int (Maybe (UUID,DendritPatern i))] 
+  --           Lens' a (TArray Int (Maybe (DendritPatern i)) <-> TArray Int (Maybe (UUID,DendritPatern i))) 
+  -- spike :: Lens' a (TArray Int (Maybe (DendritPatern i)) -> TArray Int (Maybe (UUID,DendritPatern i)) )
+{-
+initReaction :: 
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   ) => 
+   TArray Int (Maybe (DendritPatern i)) ->
+   TArray Int (Maybe (UUID,DendritPatern i)) ->
+   STM (TArray Int (Maybe (DendritPatern i)) <-> TArray Int (Maybe (UUID,DendritPatern i)))
+initReaction = do
+   aNil <- newArray (fromInteger 0, fromInteger 0) Nothing 
+   return $ (\ _ -> aNil) :<->:  
+            (\ _ -> aNil) 
+-}
+type CxtAxonMem i w a g = 
+   ( CxtAxon i w a g
+   , HasMemory a i 
+   )
+ 
+addReacrionDP :: 
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   ) => 
+--   TArray Int (Maybe (DendritPatern i)) ->
+   TArray Int (Maybe (UUID,DendritPatern i)) ->
+   (i,i) ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   STM ()
+addReacrionDP aTo pa w = do
+   let arr = coask w
+   ppi@(xpi,ypi) <- getBounds arr
+   a <- readArray arr pa 
+   let rea = a^.reaction
+   writeArray arr pa (set reaction (aTo : rea) a)
+   {-aNil <- newArray (fromInteger 0, fromInteger 0) Nothing
+   a <- readArray arr pa
+   let fp = a^.reaction
+   writeArray arr pa (set reaction (f fp) a)
+   where
+      f fp = 
+         (\ aTl -> if aTl == aTo then aFrom else (biTo fp) aTl) :<->: 
+         (\ aTu -> if aTu == aFrom then aTo else (biFrom fp) atu)  -}
+
+updateReactionDP ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   ) =>
+   Float -> 
+   TArray Int (Maybe (UUID,DendritPatern i)) ->
+   (i,i) ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   STM [TArray Int (Maybe (UUID,DendritPatern i))]
+updateReactionDP s ta pi w = do
+   let arr = coask w
+   ppi@(xpi,ypi) <- getBounds arr
+   a <- readArray arr pi
+   let rea = a^.reaction 
+   mapM (\ atn -> do
+      ppi2@(xpi2,ypi2) <- getBounds atn 
+      let latn = rangeSize ppi2
+      ltn <- getAssocs atn
+      lT <- fmap (getSum . fold) $ mapM (\ (i,muuiddp) -> do
+         muuiddp2 <- readArray ta i
+	 return $ if muuiddp == muuiddp2 then Sum 1 else Sum 0
+	 ) ltn
+      let 
+      ) rea
 
