@@ -25,6 +25,7 @@ import Debug.Trace
 import Control.Lens
 import System.Random
 import Data.Map as Map
+imoprt Data.HashMap.Lazy as HMap
 import Data.Set as Set
 import Control.Concurrent.Async
 import Data.Traversable
@@ -579,6 +580,19 @@ updateIn2Radius r1 r2 p0@(x0,y0) f w = do
     ) 
     w
 
+updateIn2RUpAxogenesPoint :: 
+  ( Comonad w-- CxtAxon i w a g
+  , Ix i
+  ) =>
+  Float -> -- ???? Int
+  Float -> -- ????? Int
+  (i,i) ->
+  W.AdjointT 
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b ->
+  IO ()
 updateIn2RUpAxogenesPoint r1 r2 p0 w = 
    updateIn2Radius r1 r2 p0 updateAxogenesPoint w
 
@@ -600,7 +614,7 @@ waveInterval ::
         (AdjArrayL (i,i) a)
         (AdjArrayR (i,i) a)
         w
-     b ->
+        b ->
      IO ()
    ) -> 
    W.AdjointT 
@@ -617,6 +631,31 @@ waveInterval rA p0 f w = do
    let l2 = [rA, rA * 2 .. arrR]
    mapM (\(x,y) -> f x y p0 w) (zip l1 l2) 
 
+updateDedritSpace :: 
+  ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   ) => 
+   Float ->
+   (i,i) ->
+   ( W.AdjointT 
+        (AdjArrayL (i,i) a)
+        (AdjArrayR (i,i) a)
+        w
+        b ->
+     IO ()
+    ) ->
+    W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO () 
+updateDedritSpace s pi f w = do
+  waveInterval s pi updateIn2RUpAxogenesPoint w
+  f w
+  waveInterval s pi updateIn2RUpClearAxoginesPoint w
+   
 upIn2RUpAxoginesPWave rA p0 w = waveInterval rA p0 updateIn2RUpAxogenesPoint 
 
 type DendritPatern i = Set (i,i)
@@ -705,26 +744,11 @@ readDendritPatern {-dp-} w = do
          
 class HasMemory a i where
   -- reactionTo :: [TArray Int (Maybe (DendritPatern i))] 
-  rectiom :: [TArray Int (Maybe (UUID,DendritPatern i))] 
+  rectiom :: Lens' a [TArray Int (Maybe (UUID,Set (DendritPatern i)))] 
+  -- association :: Lens' a [Set (DendritPatern i)]
   --           Lens' a (TArray Int (Maybe (DendritPatern i)) <-> TArray Int (Maybe (UUID,DendritPatern i))) 
   -- spike :: Lens' a (TArray Int (Maybe (DendritPatern i)) -> TArray Int (Maybe (UUID,DendritPatern i)) )
-{-
-initReaction :: 
-   ( Comonad w-- CxtAxon i w a g
-   , Ix i
-   , Num i
-   , RandomGen g
-   , Random i
-   , CxtAxonMem i w a g
-   ) => 
-   TArray Int (Maybe (DendritPatern i)) ->
-   TArray Int (Maybe (UUID,DendritPatern i)) ->
-   STM (TArray Int (Maybe (DendritPatern i)) <-> TArray Int (Maybe (UUID,DendritPatern i)))
-initReaction = do
-   aNil <- newArray (fromInteger 0, fromInteger 0) Nothing 
-   return $ (\ _ -> aNil) :<->:  
-            (\ _ -> aNil) 
--}
+
 type CxtAxonMem i w a g = 
    ( CxtAxon i w a g
    , HasMemory a i 
@@ -739,7 +763,7 @@ addReacrionDP ::
    , CxtAxonMem i w a g
    ) => 
 --   TArray Int (Maybe (DendritPatern i)) ->
-   TArray Int (Maybe (UUID,DendritPatern i)) ->
+   TArray Int (Maybe (UUID,(Set (DendritPatern i)))) ->
    (i,i) ->
    W.AdjointT 
       (AdjArrayL (i,i) a)
@@ -752,6 +776,7 @@ addReacrionDP aTo pa w = do
    ppi@(xpi,ypi) <- getBounds arr
    a <- readArray arr pa 
    let rea = a^.reaction
+   -- mapArray aTo
    writeArray arr pa (set reaction (aTo : rea) a)
    {-aNil <- newArray (fromInteger 0, fromInteger 0) Nothing
    a <- readArray arr pa
@@ -778,20 +803,54 @@ updateReactionDP ::
       (AdjArrayR (i,i) a)
       w
       b ->
-   STM [TArray Int (Maybe (UUID,DendritPatern i))]
+   STM [TArray Int (Maybe (UUID,Set (DendritPatern i)))]
 updateReactionDP s ta pi w = do
    let arr = coask w
    ppi@(xpi,ypi) <- getBounds arr
    a <- readArray arr pi
    let rea = a^.reaction 
-   mapM (\ atn -> do
+   fmap catMaybes $ mapM (\ atn -> do
       ppi2@(xpi2,ypi2) <- getBounds atn 
       let latn = rangeSize ppi2
       ltn <- getAssocs atn
-      lT <- fmap (getSum . fold) $ mapM (\ (i,muuiddp) -> do
+      lT <- fmap (getSum . fold) $ mapM (\ (i,muuidsdp) -> do
          muuiddp2 <- readArray ta i
-	 return $ if muuiddp == muuiddp2 then Sum 1 else Sum 0
+	 return $ if maybe False id (f muuidsdp muuiddp2) then Sum 1 else Sum 0
 	 ) ltn
-      let 
+      let t = (realToFrac lT)/(realToFrac ltn)
+      if t > s then return $ Just ltn
+               else return Nothing
       ) rea
+   where
+      f Nothing Nothing = return True
+      f m1 m2 = do
+         uuiddp@(uu1,dp) <- m2
+	 uuidsdp@(uu2,sdp) <- m1
+	 return $ if (uu1 == uu2) && (member dp adp)
+         
+
+class HasUpdateMemory a i where
+  -- reactionTo :: [TArray Int (Maybe (DendritPatern i))] 
+  --updateStep :: Lens' a Int
+  updateStepLength :: Lens' a Int
+  updateCurrentMemUp :: Lens' a [(Int,TArray Int (Maybe (DendritPatern i)))]  
+--                            Curent Step
+seeDendrit ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   ) =>
+   [(i,i)] -> -- updateing
+   HashMap UUID (TArray (i,i) a) ->
+   UUID -> 
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   STM [(i,i)] -- updateed
+seeDendrit lu hma uu w = 
 
