@@ -726,25 +726,30 @@ readDendritPatern ::
    , CxtAxon i w a g
    ) => 
    -- DendritPatern i ->
+   (i,i) ->
+   i -> 
    W.AdjointT 
       (AdjArrayL (i,i) a)
       (AdjArrayR (i,i) a)
       w
       b ->
    STM (DendritPatern i)
-readDendritPatern {-dp-} w = do
+readDendritPatern (x,y) r w = do
    let arr = coask w
    ppi@(xpi,ypi) <- getBounds arr
    foldlM (\ bn i -> 
-      a <- readArray arr i 
-      tvBool <- a^.neiron
-      b <- readTVar tvBool true
-      return $ bn <> (Set.singleton i)
-      ) Set.empty dp
+      if inRange ppi i 
+         then do
+            a <- readArray arr i 
+            tvBool <- a^.neiron
+            b <- readTVar tvBool true
+            return $ bn <> (Set.singleton i)
+	 else return $ Set.empty
+      ) Set.empty (range (x-r,y-r) (x+r,y+r))
          
 class HasMemory a i where
   -- reactionTo :: [TArray Int (Maybe (DendritPatern i))] 
-  rectiom :: Lens' a [TArray Int (Maybe (UUID,Set (DendritPatern i)))] 
+  rection :: Lens' a [TArray Int (Maybe (UUID,Set (DendritPatern i)))] 
   -- association :: Lens' a [Set (DendritPatern i)]
   --           Lens' a (TArray Int (Maybe (DendritPatern i)) <-> TArray Int (Maybe (UUID,DendritPatern i))) 
   -- spike :: Lens' a (TArray Int (Maybe (DendritPatern i)) -> TArray Int (Maybe (UUID,DendritPatern i)) )
@@ -781,8 +786,9 @@ addReacrionDP s aTo pa w = do
    ppi@(xpi,ypi) <- getBounds arr
    a <- readArray arr pa 
    let rea = a^.reaction
+   limpt <- getAssocs aTo
    (Or b) <- mapM (\aimpt-> 
-      limpt <- getAssocs aTo
+      -- limpt <- getAssocs aTo
       absA <- mapArray (fmap (\ (a,b) -> (a,Right b))) aimpt
       (And b) <- mapM (\ (i, muuiddp) -> do
         mept <- readArray absA i
@@ -790,7 +796,7 @@ addReacrionDP s aTo pa w = do
 	 ) limpt
       b1 <- getBounds aimpt
       b2 <- getBounds aTo
-      if (b1 == b2) && b 
+      if (b1 == b2) && b
          then do 
 	    mapM (\(i,mpt)->do
 	       bi <- getBounds aimpt
@@ -804,12 +810,15 @@ addReacrionDP s aTo pa w = do
 	    ) limpt
 	 else return $ Or False  
       ) rea
-   if b 
+   if (g limpt) && b
       then return b
       else do
          writeArray arr pa (set reaction (aTo : rea) a)
 	 return b
    where
+      g limpt = not $ length lpt == (size $ fold $ fmap Set.singleton lpt)
+         where
+	    lpt = join $ fmap (\(_,muupt)-> maybeToList muupt) limpt
       f Nothing _ Nothing _ = return $ And True
       f (uu,(Just (Right spt))) absA (Just (uu2,pt2)) j = do
          (_,y) <- getBounds absA
@@ -878,9 +887,9 @@ updateReactionDP s ta p w = do
       ltn <- getAssocs atn
       lT <- fmap (getSum . fold) $ mapM (\ (i,muuidsdp) -> do
          muuiddp2 <- readArray ta i
-	 return $ if maybe False id (f muuidsdp muuiddp2) then Sum 1 else Sum 0
+	 return $ if maybe True id (f muuidsdp muuiddp2) then Sum 1 else Sum 0 -- False
 	 ) ltn
-      let t = (realToFrac lT)/(realToFrac ltn)
+      let t = (realToFrac lT)/(realToFrac latn)
       if t > s then return $ Just ltn
                else return Nothing
       ) rea
@@ -905,6 +914,8 @@ midleDP dp = f $ fold $ map (\(x,y)-> (Max x,Min x, Max y, Min y)) dp
    where
       f (maxX,minX,maxY,MinY) = ((maxX - minX / (realToFrac 2)) + minX ,(maxY - minY / (realToFrac 2)) + minY )
 
+type FreeSpace = TVar Bool
+
 seeDendrit ::   
    ( Comonad w-- CxtAxon i w a g
    , Ix i
@@ -912,10 +923,13 @@ seeDendrit ::
    , RandomGen g
    , Random i
    , CxtAxonMem i w a g
+   , HasUpdateMemory a i
    ) =>
-   Float ->
-   w () ->
-   ( UUID ->
+   Float -> -- step wave Dendrit space
+--   w () ->
+   ( DendritPatern i ->
+     UUID ->
+     Bool ->
      W.AdjointT 
         (AdjArrayL (i,i) a)
         (AdjArrayR (i,i) a)
@@ -924,35 +938,43 @@ seeDendrit ::
      IO ()
    ) -> 
    [(i,i)] -> -- updating
-   HashMap UUID (TArray (i,i) a) ->
-   UUID -> 
+   HashMap UUID (TArray (i,i) a, FreeSpace) ->
+--   FreeSpace -> 
+--   UUID -> 
    W.AdjointT 
       (AdjArrayL (i,i) a)
       (AdjArrayR (i,i) a)
       w
       b ->
-   STM ()
-seeDendrit s w0 f lu hma uu w = do
+   IO ()
+seeDendrit ts f lu hma w = do
    let arr = coask w
    mapM (\ p ->
       a <- readArray arr p 
       let lupt = a^.updateCurrentMemUp 
-      lupt2 <- fmap join mapM (\ (s,apt) -> do
-         muusdp <- readArray apt s
+      lupt2 <- fmap join mapM (\ (cs,apt) -> do
+         muusdp <- readArray apt cs
 	 mapM_ (\ (uu,sdp) ->
 	    let mnarr = HMap.lookup uu hma
-	    mapM_ (\narr-> do
-	       let wn = adjEnv narr w0 
+	    mapM_ (\(narr,fs)-> do
+	       let wn = adjEnv narr (lower w)
+	       atomicaly $ do
+	          b <- readTaVar fs
+                  -- b2 <- readTaVar fs2
+		  check b 
+		  writeTVar fs False
 	       mapM_ (\ dp -> do
 	          atomicaly $ writeDendritPatern dp wn
-                  updateDedritSpace s (midleDP dp) (f uu)
+                  updateDedritSpace st (midleDP dp) (f dp uu False wn)
 		  ) sdp
+	       -- f (Set.empty) uu True wn
+	       atomicaly $ writeTVar fs True
 	       ) mnarr
 	    ) muusdp
          ppi@(xp,yp) <- getBounds arr
 	 return $ if inRange ppi (s+1) then [(s+1,apt)] else []
 	 ) lupt
-      
+      writeArray arr p (set updateCurrentMemUp lupt2 a)
       ) lu
 
 seeDendritALL ::    
@@ -962,10 +984,13 @@ seeDendritALL ::
    , RandomGen g
    , Random i
    , CxtAxonMem i w a g
+   , HasUpdateMemory a i
    ) =>
    Float ->
    w () ->
-   ( UUID ->
+   ( DendritPatern i ->
+     UUID ->
+     Bool ->
      W.AdjointT 
         (AdjArrayL (i,i) a)
         (AdjArrayR (i,i) a)
@@ -973,7 +998,106 @@ seeDendritALL ::
         b ->
      IO ()
    ) -> 
-   [(i,i)] -> -- updating
-   HashMap UUID (TArray (i,i) a) ->
-   STM [(i,i)]
+   HashMap UUID [(i,i)] -> -- updating
+   HashMap UUID (TArray (i,i) a, FreeSpace) ->
+   IO ()
+seeDendritALL s f w0 hup hta = do
+   mapConcurrently_ (\ (uu,(ta,_)) -> 
+      let wn = adjEnv ta w0 
+      let lp = join $ maybeToList $ HMap.lookup uu hup 
+      seeDendrit s f lp hta wn
+      -- f (Set.empty) uu True wn
+      ) (toList hta)
+   mapConcurrently_ (\ (uu,(ta,_)) ->
+      let wn = adjEnv ta w0 
+      f (Set.empty) uu True wn
+      ) (toList hta) 
 
+class SensDendrit a i where
+   sensD :: Lens' a (TArray Int (Maybe (UUID, Set (DendritPatern i))))
+   nowSense :: Lens' a (Set (DendritPatern i))
+   stepSense :: Lens' a Int
+   maxStepSens :: Lens' a Int
+   sensePoint :: Lens' a (i,i)
+   senseRadius :: Lens' a i
+
+senseDendrit ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   , SensDendrit a i
+   ) =>
+   Float -> -- semi
+   HashMap UUID [(i,i)] -> 
+   DendritPatern i ->
+   UUID ->
+   Bool ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO ()
+senseDendrit s sensor ndp uu False w = do
+   let lp = join $ maybeToList $ HMap.lookup uu sensor
+   mapM (\ p -> do
+      let arr = coask w 
+      a <- readArray arr p 
+      dp <- readDendritPatern (a^.sensePoint) (a^.senseRadius) w
+      if dp == ndp then return ()
+         else do
+	    -- let sd = a^.sensD
+	    let ns = a^.nowSense
+	    writeArray arr p (set nowSense ((Set.singletone dp) <> ns) a)
+      ) lp
+senseDendrit s sensor ndp uu True w = do
+   let lp = join $ maybeToList $ HMap.lookup uu sensor
+   mapM (\ p -> do
+      let arr = coask w 
+      a <- readArray arr p 
+      --dp <- readDendritPatern (a^.sensePoint) (a^.senseRadius) w
+      --if dp == ndp then return ()
+      --  else do
+      let sd = a^.sensD
+      let ns = a^.nowSense
+      let i = a^.stepSense
+      let mi = a^.maxStepSens
+      lipt <- getAssocs sd
+      ppi@(xp,yp) <- getBounds sd
+      nsd <- newArray_ (xp,mi)
+      mapM (\j-> do
+	      if j == mi
+	         then writeArray nsd j ns
+		 else do
+	            aj <- readArray sd j
+	            writeArray nsd j aj
+	      ) (range (xp,mi))
+      if i == mi 
+         then do
+	   ldp <- updateReactionDP s nsd p w
+           arr0 <- newArray_ (0,0)
+	   if length ldp > 0
+	      then do
+	         let ucmu = a^.updateCurrentMemUp
+	         let lr = filter (\e-> not $ elem e ldp) (a^.rection)	 
+                 writeArray arr p 
+		    ( ( set stepSense 0
+		        set nowSense Set.empty .
+		        set sensD arr0 . 
+		        set updateCurrentMemUp (lr ++ ucmu)) a)
+	      else do
+	         writeArray arr p 
+		    ( ( set stepSense 0 .
+                        set sensD arr0 .
+                        set nowSense Set.empty 
+		        ) a) 
+	 else do
+	    writeArray arr p 
+		    ( ( set stepSense (i + 1) .
+                        set sensD nsd .
+                        set nowSense Set.empty 
+		        ) a) 
+      ) lp
