@@ -516,9 +516,9 @@ updateIn2Box r1' r2' p f w = do
   let pwwaa = liftA2 (,) dxxa dyyw
   let pwwa = liftA2 (,) (range (xl1,x0)) dyyw
   let in2BS = pwwd ++ pwwdd ++ pwdd ++ psdd ++ pssdd ++ pssd ++ pssa ++ pssaa ++ psaa ++ pwaa ++ pwwaa ++ pwwa
-  forConcurrently_ in2BS (\pi-> do
+  forConcurrently_ in2BS (\i-> do
     atomically $ do
-      f pi w
+      f i w
     )
 
 redredin2Box :: 
@@ -651,10 +651,10 @@ updateDedritSpace ::
       w
       b ->
    IO () 
-updateDedritSpace s pi f w = do
-  waveInterval s pi updateIn2RUpAxogenesPoint w
+updateDedritSpace s i f w = do
+  waveInterval s i updateIn2RUpAxogenesPoint w
   f w
-  waveInterval s pi updateIn2RUpClearAxoginesPoint w
+  waveInterval s p updateIn2RUpClearAxoginesPoint w
    
 upIn2RUpAxoginesPWave rA p0 w = waveInterval rA p0 updateIn2RUpAxogenesPoint 
 
@@ -681,7 +681,7 @@ generateDendritPatern ::
 generateDendritPatern g p0@(px,py) r w k = do
    let arr = coask w
    ppi@(xpi,ypi) <- getBounds arr
-   if not $ and [(px - r, py - r) >= xpi, (px + r, py + r) <= ypi] 
+   if not $ and [(px - r, py - r) >= xi, (px + r, py + r) <= yi] 
       then error "updateAxogenesPoint: index out of bounds" 
       else do
          let pxA = px - r
@@ -707,12 +707,12 @@ writeDendritPatern ::
       (AdjArrayR (i,i) a)
       w
       b ->
-   STM Bool
+   STM ()
 writeDendritPatern dp w = do
    let arr = coask w
    ppi@(xpi,ypi) <- getBounds arr
-   mapM (\ pi -> 
-      a <- readArray arr pi 
+   mapM (\ i -> 
+      a <- readArray arr i 
       tvBool <- a^.neiron
       writeTVar tvBool true  
       ) dp
@@ -735,11 +735,11 @@ readDendritPatern ::
 readDendritPatern {-dp-} w = do
    let arr = coask w
    ppi@(xpi,ypi) <- getBounds arr
-   foldlM (\ bn pi -> 
-      a <- readArray arr pi 
+   foldlM (\ bn i -> 
+      a <- readArray arr i 
       tvBool <- a^.neiron
       b <- readTVar tvBool true
-      return $ bn <> (Set.singleton pi)
+      return $ bn <> (Set.singleton i)
       ) Set.empty dp
          
 class HasMemory a i where
@@ -842,13 +842,13 @@ addReacrionDP s aTo pa w = do
 sensPatern :: Float -> DendritPatern i -> DendritPatern i -> Bool
 sensPatern s dp1 dp2 = (realToFrac x)/(realToFrac l) > s
    where
-      (Sum x) = foldMap (\pi-> if member pi dp2 then Sum 1 else Sum 0) dp1
+      (Sum x) = foldMap (\p-> if member p dp2 then Sum 1 else Sum 0) dp1
       l = max (size dp1) (size dp2)
 
 distancePatern :: DendritPatern i -> DendritPatern i -> Int
 distancePatern dp1 dp2 = x
    where
-      (Sum x) = foldMap (\pi-> if member pi dp2 then Sum 1 else Sum 0) dp1
+      (Sum x) = foldMap (\p-> if member p dp2 then Sum 1 else Sum 0) dp1
 
 updateReactionDP ::  
    ( Comonad w-- CxtAxon i w a g
@@ -867,10 +867,10 @@ updateReactionDP ::
       w
       b ->
    STM [TArray Int (Maybe (UUID,Set (DendritPatern i)))]
-updateReactionDP s ta pi w = do
+updateReactionDP s ta p w = do
    let arr = coask w
-   ppi@(xpi,ypi) <- getBounds arr
-   a <- readArray arr pi
+   ppi@(xp,yp) <- getBounds arr
+   a <- readArray arr p
    let rea = a^.reaction 
    fmap catMaybes $ mapM (\ atn -> do
       ppi2@(xpi2,ypi2) <- getBounds atn 
@@ -895,9 +895,16 @@ updateReactionDP s ta pi w = do
 class HasUpdateMemory a i where
   -- reactionTo :: [TArray Int (Maybe (DendritPatern i))] 
   --updateStep :: Lens' a Int
-  updateStepLength :: Lens' a Int
+  --updateStepLength :: Lens' a Int
   updateCurrentMemUp :: Lens' a [(Int,TArray Int (Maybe (UUID,Set (DendritPatern i))))]  
 --                            Curent Step
+--
+
+midleDP :: Num i => DendritPatern i -> (i,i)
+midleDP dp = f $ fold $ map (\(x,y)-> (Max x,Min x, Max y, Min y)) dp
+   where
+      f (maxX,minX,maxY,MinY) = ((maxX - minX / (realToFrac 2)) + minX ,(maxY - minY / (realToFrac 2)) + minY )
+
 seeDendrit ::   
    ( Comonad w-- CxtAxon i w a g
    , Ix i
@@ -906,7 +913,17 @@ seeDendrit ::
    , Random i
    , CxtAxonMem i w a g
    ) =>
-   [(i,i)] -> -- updateing
+   Float ->
+   w () ->
+   ( UUID ->
+     W.AdjointT 
+        (AdjArrayL (i,i) a)
+        (AdjArrayR (i,i) a)
+        w
+        b ->
+     IO ()
+   ) -> 
+   [(i,i)] -> -- updating
    HashMap UUID (TArray (i,i) a) ->
    UUID -> 
    W.AdjointT 
@@ -914,6 +931,49 @@ seeDendrit ::
       (AdjArrayR (i,i) a)
       w
       b ->
-   STM [(i,i)] -- updateed
-seeDendrit lu hma uu w = 
+   STM ()
+seeDendrit s w0 f lu hma uu w = do
+   let arr = coask w
+   mapM (\ p ->
+      a <- readArray arr p 
+      let lupt = a^.updateCurrentMemUp 
+      lupt2 <- fmap join mapM (\ (s,apt) -> do
+         muusdp <- readArray apt s
+	 mapM_ (\ (uu,sdp) ->
+	    let mnarr = HMap.lookup uu hma
+	    mapM_ (\narr-> do
+	       let wn = adjEnv narr w0 
+	       mapM_ (\ dp -> do
+	          atomicaly $ writeDendritPatern dp wn
+                  updateDedritSpace s (midleDP dp) (f uu)
+		  ) sdp
+	       ) mnarr
+	    ) muusdp
+         ppi@(xp,yp) <- getBounds arr
+	 return $ if inRange ppi (s+1) then [(s+1,apt)] else []
+	 ) lupt
+      
+      ) lu
+
+seeDendritALL ::    
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   ) =>
+   Float ->
+   w () ->
+   ( UUID ->
+     W.AdjointT 
+        (AdjArrayL (i,i) a)
+        (AdjArrayR (i,i) a)
+        w
+        b ->
+     IO ()
+   ) -> 
+   [(i,i)] -> -- updating
+   HashMap UUID (TArray (i,i) a) ->
+   STM [(i,i)]
 
