@@ -887,7 +887,7 @@ updateReactionDP s ta p w = do
       ltn <- getAssocs atn
       lT <- fmap (getSum . fold) $ mapM (\ (i,muuidsdp) -> do
          muuiddp2 <- readArray ta i
-	 return $ if maybe True id (f muuidsdp muuiddp2) then Sum 1 else Sum 0 -- False
+	 return $ if maybe False id (f muuidsdp muuiddp2) then Sum 1 else Sum 0 -- False
 	 ) ltn
       let t = (realToFrac lT)/(realToFrac latn)
       if t > s then return $ Just ltn
@@ -899,6 +899,7 @@ updateReactionDP s ta p w = do
          uuiddp@(uu1,dp) <- m2
 	 uuidsdp@(uu2,sdp) <- m1
 	 return $ if (uu1 == uu2) && (not $ null $ filter (\ p -> member p dp) adp)
+      f _ _ - Nothing
          
 
 class HasUpdateMemory a i where
@@ -1018,8 +1019,50 @@ class SensDendrit a i where
    nowSense :: Lens' a (Set (DendritPatern i))
    stepSense :: Lens' a Int
    maxStepSens :: Lens' a Int
-   sensePoint :: Lens' a (i,i)
+   --sensePoint :: Lens' a (i,i)
    senseRadius :: Lens' a i
+
+senseDendritRead ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   , SensDendrit a i
+   ) =>
+   Float -> -- semi
+   HashMap UUID (Set (i,i)) -> -- Read Active
+   TQueue (UUID,DendritPatern i) ->
+   HashMap UUID [(i,i)] -> 
+   DendritPatern i ->
+   UUID ->
+--   Bool ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO () -- [DendritPatern i]
+senseDendritRead s ractive queRA sensor ndp uu w = do
+   let lp = join $ maybeToList $ HMap.lookup uu sensor
+   mapM (\ p -> do
+      let arr = coask w 
+      a <- readArray arr p 
+      dp <- readDendritPatern p (a^.senseRadius) w -- (a^.sensePoint)
+      if dp == ndp then return ()
+         else do
+	    -- let sd = a^.sensD
+	    let ns = a^.nowSense
+	    writeArray arr p (set nowSense ((Set.singletone dp) <> ns) a)
+	    let msetAct = HMap.lookup uu ractive
+	    mapM (\setAct -> do
+	       if Set.member p setAct
+	          then atomicaly $ writeTQueue queRA (uu,dp,p)
+	       ) msetAct
+      ) lp
+
+-- type BSuggestion = Bool
 
 senseDendrit ::   
    ( Comonad w-- CxtAxon i w a g
@@ -1031,6 +1074,8 @@ senseDendrit ::
    , SensDendrit a i
    ) =>
    Float -> -- semi
+   HashMap UUID (Set (i,i)) -> -- Read Active
+   TQueue (UUID,DendritPatern i,(i,i) ) ->
    HashMap UUID [(i,i)] -> 
    DendritPatern i ->
    UUID ->
@@ -1040,20 +1085,10 @@ senseDendrit ::
       (AdjArrayR (i,i) a)
       w
       b ->
-   IO ()
-senseDendrit s sensor ndp uu False w = do
-   let lp = join $ maybeToList $ HMap.lookup uu sensor
-   mapM (\ p -> do
-      let arr = coask w 
-      a <- readArray arr p 
-      dp <- readDendritPatern (a^.sensePoint) (a^.senseRadius) w
-      if dp == ndp then return ()
-         else do
-	    -- let sd = a^.sensD
-	    let ns = a^.nowSense
-	    writeArray arr p (set nowSense ((Set.singletone dp) <> ns) a)
-      ) lp
-senseDendrit s sensor ndp uu True w = do
+   IO () -- [DendritPatern i]
+senseDendrit s ractive queRA sensor ndp uu False w = 
+   senseDendritRead s ractive queRA sensor ndp uu w  
+senseDendrit s ractive _ sensor ndp uu True w = do
    let lp = join $ maybeToList $ HMap.lookup uu sensor
    mapM (\ p -> do
       let arr = coask w 
@@ -1067,37 +1102,211 @@ senseDendrit s sensor ndp uu True w = do
       let mi = a^.maxStepSens
       lipt <- getAssocs sd
       ppi@(xp,yp) <- getBounds sd
-      nsd <- newArray_ (xp,mi)
+      nsd <- newArray_ (xp,i)
       mapM (\j-> do
-	      if j == mi
-	         then writeArray nsd j ns
+	      if j == i
+	         then if (not $ Set.nil ns) then writeArray nsd j (Just (uu,ns))
+		         else writeArray nsd j Nothing 
 		 else do
 	            aj <- readArray sd j
 	            writeArray nsd j aj
-	      ) (range (xp,mi))
+	      ) (if i <= mi then range (xp,i) else range (xp,mi))
       if i == mi 
          then do
-	   ldp <- updateReactionDP s nsd p w
-           arr0 <- newArray_ (0,0)
-	   if length ldp > 0
-	      then do
-	         let ucmu = a^.updateCurrentMemUp
-	         let lr = filter (\e-> not $ elem e ldp) (a^.rection)	 
-                 writeArray arr p 
-		    ( ( set stepSense 0
-		        set nowSense Set.empty .
-		        set sensD arr0 . 
-		        set updateCurrentMemUp (lr ++ ucmu)) a)
-	      else do
-	         writeArray arr p 
-		    ( ( set stepSense 0 .
-                        set sensD arr0 .
-                        set nowSense Set.empty 
-		        ) a) 
+	      ldp <- updateReactionDP s nsd p w
+              arr0 <- newArray_ (0,0)
+	      if length ldp > 0
+	         then do
+		    let bSetP = maybe False (\setP-> Set.member p setP) HMap.lookup uu ractive
+                    if bSetP 
+		       then do
+		         writeArray arr p 
+	                    ( ( set stepSense 0
+	                        set nowSense Set.empty .
+	                        set sensD arr0 . 
+		                ) a) 
+		       else do
+	                  let ucmu = a^.updateCurrentMemUp
+	                  let lr = filter (\e-> not $ elem e ldp) (a^.rection)	 
+                          writeArray arr p 
+	                     ( ( set stepSense 0
+	                         set nowSense Set.empty .
+	                         set sensD arr0 . 
+		                 set updateCurrentMemUp (lr ++ ucmu)) a)
+	         else do
+	            let lr = (a^.rection) 
+        	    if length lr < 0 
+		       then do
+		          writeArray arr p 
+		             ( ( set stepSense 0 .
+                                 set sensD arr0 .
+                                 set nowSense Set.empty .
+			         set reaction [nsd]
+		             ) a) 
+	               else writeArray arr p 
+		            ( ( set stepSense 0 .
+                                set sensD arr0 .
+                                set nowSense Set.empty 
+		              ) a) 
 	 else do
 	    writeArray arr p 
 		    ( ( set stepSense (i + 1) .
                         set sensD nsd .
                         set nowSense Set.empty 
 		        ) a) 
+--      if Set.member p ractive
+--         then return [ndp]
+--	 else return []
       ) lp
+
+data SuggestionSafe i = SuggestionSafe
+   { safeSenseD :: (TArray Int (Maybe (UUID, Set (DendritPatern i)))) 
+   , safeStepSense :: Int 
+   , safeCurentMemUp :: [(Int,TArray Int (Maybe (UUID,Set (DendritPatern i))))]
+   -- , safePoint :: (i,i)
+   }
+
+class Suggestion a i where
+   safeSuggestion :: Lens' a (Cofree (HashMap [(UUIDA,(i,i))] ) (SuggestionSafe i))
+   -- safeMaxDepth :: Lens' a Int
+   --
+
+type SuggestionPath i = [[(UUID,(i,i))]]
+
+suggestionSafe ::    
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   , SensDendrit a i
+   ) =>
+   SuggestionPath i -> 
+   [(UUID,(i,i))] ->
+   [(i,i)] -> 
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO () -- [DendritPatern i]
+suggestionSafe sp act lpUp w = do
+   let arr = coask w 
+   mapM (\p-> do 
+      a <- readArray arr p
+      let safeCo = g a sp $ a^.safeSuggestion 
+      writeArray arr p (set safeSuggestion safeCo a)
+      ) lpUp
+   where
+      g a (p:sp) sco@(b :< _) = if (HMap.nil fnsco) || (nil sp) 
+            then b :< (HMap.insert p ((SuggestionSafe
+	       (a^.senseD)
+	       (a^.stepSense)
+	       (a^.updateCurrentMemUp)
+	       ) :< (HMap.empty)) fnsco)
+	    else b :< (HMap.alter (\ mnsco -> (do 
+	       nsco <- mnsco
+	       return $ g sp nsco
+	       ) <|> (
+               return $ (SuggestionSafe
+	          (a^.senseD)
+	          (a^.stepSense)
+	          (a^.updateCurrentMemUp)
+	          ) :< (HMap.empty)
+	       )
+	       ) p fnsco)
+         where
+	    fnsco = unwrap sco
+   
+suggestionReSafe ::    
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   , SensDendrit a i
+   ) =>
+   SuggestionPath i -> 
+   [(i,i)] -> 
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO () -- [DendritPatern i]
+suggestionReSafe sp act lpUp w = do
+   let arr = coask w 
+   mapM (\p-> do 
+      a <- readArray arr p
+      let msugg = g sp $ a^.safeSuggestion 
+      mapM (\sugg-> do
+         writeArray arr p (
+	    ( set senseD (safeSenseD sugg) .
+	      set stepSense (safeStepSense sugg) .
+	      set updateCurrentMemUp (safeCurentMemUp sugg)
+	    ) a)
+         ) msugg
+      ) lpUp
+   where
+      g [] (o :< fsco) = return o
+      g (p:sp) sco = (HMap.lookup p fnsco) >>= (\nsco-> g sp nsco)
+         where
+	    fnsco = unwrap sco
+   
+activationD ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   , SensDendrit a i
+   ) =>
+   [(UUID,(i,i))] -> -- Active
+   HashMap UUID (TArray (i,i) a, FreeSpace) -> 
+   IO ()
+activationD lact hmTa = do
+   mapM (\ (uu,p) -> do
+      marr <- HMap.lookup uu hmTa
+      mapM (\arr-> do
+         a <- readArray arr p 
+	 let r = a^.rection
+	 let upR = a^.updateCurrentMemUp
+         writeArray arr p (set updateCurrentMemUp ((fmap (\x-> (0,x)) r) ++ upR))
+	 ) marr
+      ) lact
+
+type BSuggestion = Bool
+
+dendritStepCycle ::     
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   , HasUpdateMemory a i
+   ) =>
+   Float -> -- step wave Dendrit space
+   Float -> -- semi sense
+   HashMap UUID (Set (i,i)) -> -- Read Active
+   TQueue (UUID,DendritPatern i) ->
+   HashMap UUID [(i,i)] ->
+   w () -> {-
+   ( DendritPatern i ->
+     UUID ->
+     Bool ->
+     W.AdjointT 
+        (AdjArrayL (i,i) a)
+        (AdjArrayR (i,i) a)
+        w
+        b ->
+     IO ()
+   ) -> -}
+   HashMap UUID [(i,i)] -> -- updating
+   HashMap UUID (TArray (i,i) a, FreeSpace) ->
+   IO ()
+dendritStepCycle = do
+
