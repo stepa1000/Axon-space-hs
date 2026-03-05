@@ -32,6 +32,7 @@ import Data.Traversable
 import Data.Foldable
 import Data.Proxy
 import Data.UUID
+import Data.Sequence as Seq
 
 -- Array
 
@@ -1177,7 +1178,7 @@ class Suggestion a i where
    -- safeMaxDepth :: Lens' a Int
    --
 
-type SuggestionPath i = [[Signal i]]
+type SuggestionPath i = Seq (Set (Signal i))
 
 suggestionSafe ::    
    ( Comonad w-- CxtAxon i w a g
@@ -1237,7 +1238,7 @@ suggestionReSafe ::
    , SensDendrit a i
    ) =>
    SuggestionPath i -> 
-   [(i,i)] -> 
+   Set (i,i)-> 
    W.AdjointT 
       (AdjArrayL (i,i) a)
       (AdjArrayR (i,i) a)
@@ -1266,7 +1267,48 @@ suggestionReSafe sp act lpUp w = do
       g (p:sp) sco = (HMap.lookup p fnsco) >>= (\nsco-> g sp nsco)
          where
 	    fnsco = unwrap sco
-   
+
+suggestionReSafeAll ::    
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   , SensDendrit a i
+   ) =>
+   SuggestionPath i -> 
+   HashMap UUID (Set (i,i)) -> 
+   HashMap UUID (TArray (i,i) a, FreeSpace) ->
+   w () ->
+   IO () -- [DendritPatern i]
+suggestionReSafeAll spath act lpUp w0 =
+   mapConcurrently_ (\ (uu,(ta,_)) -> 
+      let wn = adjEnv ta w0 
+      let sp = join $ maybeToList $ HMap.lookup uu act
+      suggestionReSafe spath act wn
+      ) lpUp
+
+suggestionUpdate ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   , SensDendrit a i
+   ) =>
+   SuggestionPath i -> 
+   [(i,i)] -> 
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO () -- [DendritPatern i]
+suggestionUpdate sp ui w = do
+
+
 activationD ::  
    ( Comonad w-- CxtAxon i w a g
    , Ix i
@@ -1305,10 +1347,11 @@ readActive ::
    , SensDendrit a i
    ) =>
    TQueue (Signal i) ->
-   IO (Set (Signal i))
+   IO (HashMap (Signal i) (Sum Int ) )
 readActive queue = do
    ls <- atomicaly $ flushTQueue queue
-   return $ fold $ fmap (Set.singletone) ls
+   return $ foldl (\ hm1 hm2 -> unionWith <> hm1 hm2) HMap.empty $ 
+      fmap (\(uu,dp,pi) -> HMap.singletone (uu,dp,pi) (Sum 1) ) ls
 
 type BSuggestion = Bool
 
@@ -1340,26 +1383,27 @@ type Signal i = (UUID, DendritPatern i, (i,i))
 data DendritSC i a = DendritSC
    { stepWave :: Float
    , semiSense :: TVar Float
-   , readActive :: HashMap UUID (Set (i,i))
+   , readActiveDSC :: HashMap UUID (Set (i,i))
    , queueActive :: TQueue (Signal i) 
-   , sensorHM :: TVar (HashMap UUID [(i,i)])
-   , reactionHM :: TVar (HashMap UUID [(i,i)])
+   , sensorHM :: TVar (HashMap UUID (Set (i,i)) )
+   , reactionHM :: TVar (HashMap UUID (Set (i,i)) )
    , fieldHM :: TVar (HashMap UUID (TArray (i,i) a, FreeSpace))
-   , readNextSignal :: IO [Signal i]
+   , readNextSignal :: IO (Set (Signal i))
    , writeSuggestion :: Set (Signal i) -> IO () -- Bool DendritPatern 
-   , suggestionPast :: TVar (Free (HashMap [Signal i]) ())
-   , midleSignal :: TVar [[Signal i]]
+   , suggestionPast :: TVar Free (HashMap (Set (Signal i))) ()
+   , midleSignal :: TVar (SuggestionPath i)
    , suggestionError :: TVar Float
    --, midleSignalPast :: TVar Int
    -- , midleSignalPow2 :: TVar ([[Signal i]],[[Signal i]])
-   , signalContext :: TVar [[Signal i]]
-   , alwaysSensorReaction :: TVar (HashMap UUID (Set (i,i)))
+   , signalContext :: TVar (SuggestionPath i)
+   -- , alwaysSensorReaction :: TVar (HashMap UUID (Set (i,i)))
+   , maxSuggestion :: Int
    }
 
-distanceSignal :: [[Signal i]] -> [[Signal i]] -> Int
+distanceSignal :: SuggestionPath i -> SuggestionPath i -> Int
 distanceSignal ls1 ls2 = getSum $ fold $ zipWith (\s1 s2 -> if s1 == s2 then Sum 1 else Sum 0) ls1 ls2
 
-filterSuggestionPast :: Int -> [[Signal i]] -> Free (HashMap [Signal i]) () -> Free (HashMap [Signal i]) ()
+filterSuggestionPast :: Int -> SuggestionPath i -> Free (HashMap (Set (Signal i))) () -> Free (HashMap (Set (Signal i))) ()
 filterSuggestionPast dist ls hms = fst $ g ls hms (Sum 0)
    where
       g [] fhsm s = (fhsm,s)
@@ -1380,15 +1424,27 @@ filterSuggestionPast dist ls hms = fst $ g ls hms (Sum 0)
 	 ) $ toList hmsn 
       g _ (Pure ()) s = (Pure (), s)
 
-lengthSuggestion :: Free (HashMap [Signal i]) () -> Int -> Int
+lengthSuggestion :: Free (HashMap (Set (Signal i))) () -> Int -> Int
 lengthSuggestion (Pure ()) s = s
 lengthSuggestion (Free fhms) s = getMax $ fold $ map (\(_,fhm2)-> Max $ lengthSuggestion fhms (s+1) ) $ toList fhms
 
-midleSuggestion' :: Free (HashMap [Signal i]) () -> [[[Signal i]]]
-midleSuggestion' (Pure ()) = [[[]]]
+midleSuggestion' :: Free (HashMap (Set (Signal i))) () -> [SuggestionPath i]
+midleSuggestion' (Pure ()) = [Seq.Empty]
 midleSuggestion' (Free hm) = map (\ (k,fhm) -> fmap (k :) (midleSuggestion fhm) ) $ toList hm
 
-midleSuggestion :: Free (HashMap [Signal i]) () -> [[Signal i]]
+type SuggestionOption i = [Set (Signal i)]
+
+mapMSuggestion :: Monad m =>  
+   (SuggestionPath i -> m (SugestionOption i)) -> SuggestionPath i -> Free (HashMap (Set (Signal i))) ()  -> m (Free (HashMap (Set (Signal i))) () )
+mapMSuggestion f ck (Free hm) = fmap Free $ traverseWithKey  (\k fhm -> do
+   fhmN <- mapMSuggestion f (ck :>| k) fhm
+   return fhmN
+   ) fhm 
+mapMSuggestion f ck (Pure ()) = do
+   so <- f ck
+   return $ map (\k-> HMap.singletone (ck :>| k) (Pure ())) so
+
+midleSuggestion :: Free (HashMap (Set (Signal i))) ()  -> SuggestionPath i
 midleSuggestion f = fmap fst $ foldl (\ (ls,t) (k,Max ma2, Min mi2) -> 
          if t < (ma2 - mi2) then (ls,t) else (k, ma2 - mi2) ) ([[]], maxBound) $ 
       HMap.toList $ foldl (\hm hm2 -> unionWith <> hm hm2) HMap.empty $ do
@@ -1418,7 +1474,7 @@ dendritSCIO w = do
    semiS <- readTVarIO (semiSense dsc)
    hmS <- readTVarIO (sensorHM dsc)
    hmU <- readTVarIO (reactionHM dsc)
-   hmArr >- readTVarIO (fieldHM dsc)
+   hmArr <- readTVarIO (fieldHM dsc)
    -- suggestionSafe
    sc <- readTVarIO (signalContext dsc)
    mids <- readTVarIO (midleSignal dsc)
@@ -1436,12 +1492,19 @@ dendritSCIO w = do
    let be = (realToFrac distMidle) / (realToFrac lengthSCN) < se
    if ((\fs -> case fs of
          (Pure ()) -> True
-	 (Free fm) -> (HMap.nil fm) || (lengthSuggestion fSugg < length scn)
+	 (Free fm) -> (HMap.nil fm) || (lengthSuggestion midleN < (maxSuggestion dsc))
          ) fSugg) || be
       then do
-         activationD cSignal hmArr
-         dendritStepCycle' 
-            (stepWave dsc) semiS (readActive dsc) (queueActive dsc) hmS (liwer w) hmU hmArr
+         mapMSuggestion (\ kp -> do
+            suggestionReSafeAll kp (unionWith <> hmS hmU) hmArr (lower w)
+            when (Seq.nil kp) $ activationD cSignal hmArr
+            --when (not $Seq.nil kp) $ activationD ((\(_ :>| k)->k) kp) hmArr
+            dendritStepCycle' 
+               (stepWave dsc) semiS (readActivedsc dsc) (queueActive dsc) hmS (liwer w) hmU hmArr
+	    sactive <- readActive (readActiveDSC dsc) 
+	    -- let distKP = distanceSignal 
+	    let setD = foldl1 (\ (s1,Sum n1) (s2,Sum n2) -> if n1 > n2 then (s1,Sum n1) else (s2,Sum n2) ) $ HMap.toList sactive
+	    ) (Seq.Empty) fSugg
       else do
          
 
@@ -1449,7 +1512,7 @@ dendritSCIO w = do
       suggZero = do
          activationD cSignal freadActivehm
          dendritStepCycle' 
-            (stepWave dsc) semiS (readActive dsc) (queueActive dsc) hmS (liwer w) hmU hmArr
+            (stepWave dsc) semiS (readActiveDSC dsc) (queueActive dsc) hmS (liwer w) hmU hmArr
 -}        
    -- readActive
    
