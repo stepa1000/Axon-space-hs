@@ -165,13 +165,13 @@ updateReactionDP ::
       (AdjArrayR (i,i) a)
       w
       b ->
-   STM [TArray Int (Maybe (UUID,Set (DendritPatern i)))]
+   STM (Map Float (TArray Int (Maybe (UUID,Set (DendritPatern i)))))
 updateReactionDP s ta p w = do
    let arr = coask w
    ppi@(xp,yp) <- getBounds arr
    a <- readArray arr p
    let rea = a^.reaction 
-   fmap catMaybes $ mapM (\ atn -> do
+   fmap fold $ mapM (\ atn -> do
       ppi2@(xpi2,ypi2) <- getBounds atn 
       let latn = rangeSize ppi2
       ltn <- getAssocs atn
@@ -180,8 +180,8 @@ updateReactionDP s ta p w = do
 	 return $ if maybe False id (f muuidsdp muuiddp2) then Sum 1 else Sum 0 -- False
 	 ) ltn
       let t = (realToFrac lT)/(realToFrac latn)
-      if t > s then return $ Just ltn
-               else return Nothing
+      if t > s then return $ Map.singletone t ltn
+               else return Map.empty
       ) rea
    where
       f Nothing Nothing = return True
@@ -372,6 +372,11 @@ type QueueLerned i = TQueue (UUID,(i,i))
 
 type QueueReacting i = TQueue (UUID,(i,i)) 
 
+type QueueGuard i = TQueue (UUID,(i,i))
+
+type HMGuard i = 
+   HashMap UUID (HashMap (i,i) (Set (i,i))) 
+
 senseDendrit ::   
    ( Comonad w-- CxtAxon i w a g
    , Ix i
@@ -383,7 +388,10 @@ senseDendrit ::
    ) =>
    Int ->
    Float -> -- semi
+   Float -> -- semi Guard
+   HMGuard i -- guards
    HashMap UUID (Set (i,i)) -> -- Read Active reception
+   QueueGuard i ->
    QueueReception i -> -- reception
    QueueLerned i -> -- lerned 
    QueueReacting i ->
@@ -397,9 +405,9 @@ senseDendrit ::
       w
       b ->
    IO () -- [DendritPatern i]
-senseDendrit lt s ractive queRA _ _ sensor ndp uu False w = 
+senseDendrit lt s sG hmG ractive _ queRA _ _ sensor ndp uu False w = 
    senseDendritRead lt s ractive queRA sensor ndp uu w  
-senseDendrit lt s ractive _ queLerned queReacting sensor ndp uu True w = do
+senseDendrit lt s sG hmG ractive queG _ queLerned queReacting sensor ndp uu True w = do
    let lp = join $ maybeToList $ HMap.lookup uu sensor
    mapM (\ p -> do
       let arr = coask w 
@@ -431,7 +439,9 @@ senseDendrit lt s ractive _ queLerned queReacting sensor ndp uu True w = do
 	      ) (if i <= mi then range (xp,i) else range (xp,mi))
       if i == mi 
          then do
-	      ldp <- updateReactionDP s nsd p w
+	      mdp <- updateReactionDP (min s sG) nsd p w
+	      let ldp = fmap snd Map.toList $ Map.filterKeys (> s) mdp
+	      let mdpG = Map.filterKeys (> sG) mdp 
               arr0 <- newArray_ (0,0)
 	      if length ldp > 0
 	         then do
@@ -444,7 +454,10 @@ senseDendrit lt s ractive _ queLerned queReacting sensor ndp uu True w = do
 	                        set sensD arr0 . 
 		                ) a) 
 		       else do
-		          atomicaly $ writeTQueue queReacting (uu,p)
+		          let bG = maybe False id $ fmap (HMap.member p) $ HMap.lookup uu hmG
+			  when bG $
+			     atomicaly $ writeTQueue queG (uu,p) 
+		          mapM (\(d,_)-> atomicaly $ writeTQueue queReacting (uu,p)) $ lookupMax mdp
 	                  let ucmu = a^.updateCurrentMemUp
 	                  let lr = filter (\e-> not $ elem e ldp) (a^.rection)	 
                           writeArray arr p 
@@ -775,6 +788,7 @@ data DendritSC i a = DendritSC
    , queueActive :: QueueReception i 
    , queueLerned :: QueueLerned i
    , queueReacting :: QueueReacting i  
+   , queueGuard :: QueueGuard i
    , sensorHM :: TVar (HashMap UUID (Set (i,i)) )
    , reactionHM :: TVar (HashMap UUID (Set (i,i)) )
    , lernHM :: TVar (HashMap UUID (Set (i,i)) ) 
@@ -790,6 +804,8 @@ data DendritSC i a = DendritSC
    -- , alwaysSensorReaction :: TVar (HashMap UUID (Set (i,i)))
    , maxSuggestion :: Int
    , maxSContext :: Int
+   , fildsGuards ;; TVar (HMGuard i )
+   , guardDistance :: TVar Float
    }
 
 distanceSignal :: SuggestionPath i -> SuggestionPath i -> Int
@@ -878,11 +894,14 @@ dendritSCIO ::
    , HasUpdateMemory a i
    ) =>
    ( LernFlag -> 
-     Set (SignalA i) ->
+     [Set (SignalA i)] ->
      TVar Float -> -- Semi
+     TVar Float -> -- Semi guard
+     TVar (HMGuard i) ->
      TVar (HashMap UUID (Set (i,i)) ) -> -- sensor
      QueueLerned i ->
      QueueReacting i ->
+     QueueGuard i ->
      TVar (HashMap UUID (Set (i,i)) ) -> -- lern
      TVar (HashMap UUID (Set (i,i)) ) -> -- reaction
      TVar (HashMap UUID (TArray (i,i) a, FreeSpace)) ->
@@ -1007,44 +1026,107 @@ dendritSCIO mindC w = do
             hmArr <- readTVarIO (fieldHM dsc) 
 	    mapM (\ sAct -> do 
 	       suggestionSafeAll (sAct :<| kp) (unionWith <> hmS hmU) hmArr 
-	       ) lsAct -- OPTINIZE THE .... !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	       ) lsAct -- OPTIMIZE THE .... !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	    -- let distKP = distanceSignal 
 	    -- let maxS = foldl1 (\ (s1,Sum n1) (s2,Sum n2) -> if n1 > n2 then (s1,Sum n1) else (s2,Sum n2) ) $ HMap.toList sactive
 	    return lsAct
 	    )
       f _ _ _ _ = return ()
-{-
-data DendritSCS i a = DendritSCS
-   { stepWave :: Float
-   , semiSense :: TVar Float
-   , readActiveDSC :: HashMap UUID (Set (i,i))
-   , queueActive :: TQueue (Signal i) 
-   , sensorHM :: TVar (HashMap UUID (Set (i,i)) )
-   , reactionHM :: TVar (HashMap UUID (Set (i,i)) )
-   , fieldHM :: TVar (HashMap UUID (TArray (i,i) a, FreeSpace))
-   , readNextSignal :: IO (Set (Signal i))
-   , writeSuggestion :: Set (Signal i) -> IO () -- Bool DendritPatern 
-   --, suggestionPast :: TVar Free (HashMap (Set (Signal i))) ()
-   --, midleSignal :: TVar (SuggestionPath i)
-   --, suggestionError :: TVar Float
-   --, midleSignalPast :: TVar Int
-   -- , midleSignalPow2 :: TVar ([[Signal i]],[[Signal i]])
-   --, signalContext :: TVar (SuggestionPath i)
-   -- , alwaysSensorReaction :: TVar (HashMap UUID (Set (i,i)))
-   --, maxSuggestion :: Int
+
+data MindControl = MindControl 
+   { maxVariants :: Int
+   , seqReact :: TVar (Seq (Set (UUID,(i,i))) )
+   , nearReact :: TVar (HashMap ((UUID,(i,i)),(UUID,(i,i))) Int )
    }
 
-dendritSCSimple :: 
--}
-         
+guardControl = do
+   --ll <- atomicaly $ flushTQueue queL
+   --lr <- atomicaly $ flushTQueue queR 
+   --lg <- atomicaly $ flushTQueue queG
+   --hmGD <- readTVarIO tvhmG-- (guardDistance mc)
+   -- Guard Control
+   let srUUp = fmap (\ (uu,ip) -> Set.singletone (uu,ip)) lg
+   let inGuard = HMap.filterWithKey (\ (uu,ipg) sip -> maybe False id $ fmap (Set.member (uu,ipg) srUUp) ) hmGD 
+   let outGuard = HMap.filterWithKey (\ (uu,ipg) sip -> not $ maybe False id $ fmap (Set.member (uu,ipg) srUUp) srUUp ) hmGD
+      -- or $ mapM (\(uu2,ip2,_)-> (uu2 == uu) && (ipg == ip2) ) lr ) hmGD 
+   traverseWithKey (\ uu hmpp -> do
+      let hmpp2 = foldl1 (HMap.unionWith (<>)) $ fmap (\ipg -> HMap.singletone uu (Set.singletone ipg) ) $ HMap.filterWithKey (\ipg-> Set.member (uu,ipg) srUUp) hmpp
+      hmS <- readTVarIO hmSensor
+      hmR <- readTVarIO tvhmR
+      atomicaly $ do
+         writeTVarIO hmSensor $ HMap.unionWith (<>) hmS hmpp2
+         writeTVarIO tvhmR $ HMap.unionWith (<>) hmR hmpp2
+      ) inGuard
+   traverseWithKey (\ uu hmpp -> do
+      let hmpp2 = foldl1 (HMap.unionWith (<>)) $ fmap (\ipg -> HMap.singletone uu (Set.singletone ipg) ) $ HMap.filterWithKey (\ipg-> not $ Set.member (uu,ipg) srUUp) hmpp
+      hmS <- readTVarIO hmSensor
+      hmR <- readTVarIO tvhmR
+      atomicaly $ do
+         writeTVarIO hmSensor $ HMap.unionWith difference hmS hmpp2
+         writeTVarIO tvhmR $ HMap.unionWith difference hmR hmpp2
+      ) outGuard
+   -- Guard Control End
 
- {-  where
-      suggZero = do
-         activationD cSignal freadActivehm
-         dendritStepCycle' 
-            (stepWave dsc) semiS (readActiveDSC dsc) (queueActive dsc) hmS (liwer w) hmU hmArr
--}        
-   -- readActive
+reactSeqControl mc lr = do
+   let sr = fold $ fmap (\ uui -> Set.singletone uui) lr
+   seqR <- readTVarIO (seqReact mc)
+   atomicaly $ writeTVarIO (seqReact mc) $ (sr :<| seqR)
+
+mindControl ::      
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxonMem i w a g
+   , HasUpdateMemory a i
+   ) =>
+   MindControl ->
+   LernFlag -> 
+   [Set (SignalA i)] ->
+   TVar Float -> -- Semi
+   TVar Float -> -- Semi guard
+   TVar (HMGuard i) ->
+   TVar (HashMap UUID (Set (i,i)) ) -> -- sensor
+   QueueLerned i ->
+   QueueReacting i ->
+   QueueGuard i ->
+   TVar (HashMap UUID (Set (i,i)) ) -> -- lern
+   TVar (HashMap UUID (Set (i,i)) ) -> -- reaction
+   TVar (HashMap UUID (TArray (i,i) a, FreeSpace)) ->
+   IO Bool
+mindControl mc False ssVariants tvSemi tvSG tvhmG hmSensor queL queR queG tvhmL tvhmR tvArr = do
+   ll <- atomicaly $ flushTQueue queL
+   lr <- atomicaly $ flushTQueue queR 
+   lg <- atomicaly $ flushTQueue queG
+   hmGD <- readTVarIO tvhmG-- (guardDistance mc)
+   guardControl
+   if (length ssVariant) < (maxVariants mc)
+      then do
+         if (length ssVatiant) == 0 
+	    then do
+	       atomicaly $ modifyTVar (\ semi -> semi / 2 )
+	       return False
+	    else do
+	       return True
+      else do 
+         atomicaly $ modifyTVar (\ semi -> ( (1 - semi) / 2) + semi ) 
+	 return False
+mindControl mc True ssVariants tvSemi tvSG tvhmG hmSensor queL queR queG tvhmL tvhmR tvArr = do
+   ll <- atomicaly $ flushTQueue queL
+   lr <- atomicaly $ flushTQueue queR 
+   lg <- atomicaly $ flushTQueue queG
+   hmGD <- readTVarIO tvhmG-- (guardDistance mc)
+   guardControl
+   if (length ssVariant) < (maxVariants mc)
+      then do
+         if (length ssVatiant) == 0 
+	    then do
+	       atomicaly $ modifyTVar (\ semi -> semi / 2 )
+	       return False
+	    else do
+	       return True
+      else do 
+         atomicaly $ modifyTVar (\ semi -> ( (1 - semi) / 2) + semi ) 
+	 return False
    
-
-

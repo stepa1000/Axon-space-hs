@@ -27,6 +27,7 @@ import System.Random
 import Data.Map as Map
 imoprt Data.HashMap.Lazy as HMap
 import Data.Set as Set
+import Data.HashSet as HSet
 import Control.Concurrent.Async
 import Data.Traversable
 import Data.Foldable
@@ -632,13 +633,13 @@ waveInterval rA p0 f w = do
    let l2 = [rA, rA * 2 .. arrR]
    mapM (\(x,y) -> f x y p0 w) (zip l1 l2) 
 
-updateDedritSpace :: 
+updateDedritSpace :: -- GOOD abstract the
   ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
    ) => 
    Float ->
-   (i,i) ->
+   [(i,i)] ->
    ( W.AdjointT 
         (AdjArrayL (i,i) a)
         (AdjArrayR (i,i) a)
@@ -652,10 +653,13 @@ updateDedritSpace ::
       w
       b ->
    IO () 
-updateDedritSpace s i f w = do
-  waveInterval s i updateIn2RUpAxogenesPoint w
+updateDedritSpace s li f w = do
+  forConcurrently_ li (\i-> do
+    waveInterval s i updateIn2RUpAxogenesPoint w 
+    )
+  -- waveInterval s i updateIn2RUpAxogenesPoint w
   f w
-  waveInterval s p updateIn2RUpClearAxoginesPoint w
+  waveInterval s (head li) updateIn2RUpClearAxoginesPoint w -- all array to false maybe ?????????!!!!!!!!!!!
    
 upIn2RUpAxoginesPWave rA p0 w = waveInterval rA p0 updateIn2RUpAxogenesPoint 
 
@@ -748,3 +752,169 @@ readDendritPatern (x,y) r w = do
 	 else return $ Set.empty
       ) Set.empty (range (x-r,y-r) (x+r,y+r))
 
+midleDP :: Num i => DendritPatern i -> (i,i)
+midleDP dp = f $ fold $ map (\(x,y)-> (Max x,Min x, Max y, Min y)) dp
+   where
+      f (maxX,minX,maxY,MinY) = ((maxX - minX / (realToFrac 2)) + minX ,(maxY - minY / (realToFrac 2)) + minY )
+
+type QueueWriteDP i = TQueue [DendritPatern i]
+
+type QueueReadDP i = TQueue [DendritPatern i] -- (i,i)
+
+type PointAndR i = ((i,i),i)
+
+type WaveStep = Float 
+
+dendritWriteRead ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxon i w a g
+   ) =>
+   WaveStep ->
+   QueueWriteDP i ->
+   QueueReadDP i ->
+   [PointAndR i] ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO ()
+dendritWriteRead s quW quR lP w = do
+   lldp <- atomicaly $ flushTQueue quW 
+   let lldpp = (fmap . fmap) (\dp-> (dp, midleDP dp)) lldp
+   mapM (\ldpp-> do
+      mapM (\(dp,_)-> writeDendritPatern dp w) ldpp
+      updateDedritSpace s (fmap snd ldpp) 
+         ( \ wn -> do
+	    ldpOut <- mapM (\ (ip,i) -> do
+	       readDendritPatern ip r
+	       ) lP
+	    atomicaly $ writeTQueue quR ldpOut
+	 ) w
+      ) lldpp
+
+type PointLinearMemory i = PointAndR i 
+
+type QueuePLM i = TQueue (PointLinearMemory i)
+
+type SeqLM i = Seq (DendritPatern i, PointAndR i)
+
+dendritLinearMemory ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxon i w a g
+   ) =>
+   TVar (SeqLM i) ->
+   WaveStep ->
+   QueueWriteDP i ->
+   -- QueueReadDP i ->
+   QueuePLM i ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO ()
+dendritLinearMemory tvsDP s quW quPLM w =
+   lPLM <- atomicaly $ flushTQueue quPLM
+   lldp <- atomicaly $ flushTQueue quW
+   mapM (\ (plm,ldp) -> do
+      quWdp <- newTQueueIO 
+      quRdp <- newtQueueIO
+      atomivaly $ do
+         writeTQueue quWdp ldp
+	 -- writeTQueue quRdp
+      dendritWriteRead s quWdp quRdp [plm] w
+      atomicaly $ do
+         lrdp <- flushTQueue quRdp
+         modifyTVar tvsDP (\sdp-> sdp :>| (head lrdp,plm))
+      ) $ zip lPLM lldp
+   
+ 
+dendritReactLinearMemory ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxon i w a g
+   ) =>
+   TVar (SeqLM i) ->
+   WaveStep ->
+   QueueWriteDP i ->
+   QueueReadDP i ->
+   -- QueuePLM i ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO (Seq Bool)
+dendritReactLinearMemory tvsDP s quW quR w =
+   sdpp <- readTVarIO tvsDP 
+   let lpr = Seq.toList $ fmao snd sdpp
+   dendritWriteRead s quW quR lpr w
+   seqrdp <- fmap (foldl (\ b a -> b :>| (fold $ fmap HSet.singletone a)) Seq.empty) $ atomicaly $ flushTQueue quRdp
+   return $ Seq.zipWith (\ (dp,pr) hsDp -> HSet.member dp hsDp) sdpp seqrdpfoldl
+
+type HMDPf i = HashMap (DendritPatern i, PointAndR i) Int 
+
+frequencyLinearMemoryHMDP :: SeqLM i -> HMDPf i
+frequencyLinearMemoryHMDP slm = fmap getSum $ foldl1 (unionWith (<>)) $ fmap (\(dp,pr)-> HMap.singletone (dp,pr) (Sum 1) ) slm
+
+type MFDP i = Map Int (HeshSet (DendritPatern i, PointAndR i))
+
+frequencyLMMF :: HMDPf i -> MFDP i
+frequencyLMMF hmdpf = foldl1 (Map.unionWith (<>)) $ HMap.mapWithKey (\ k fr -> Map.singletone fr (HSet.singletone k)) hmdpf
+
+seqToFrequency :: SeqLM i -> MFDP i 
+seqToFrequency = frequencyLMMF . frequencyLinearMemoryHMDP 
+
+type PatternRadius = Int
+
+generationPattern :: PatternRadius -> SeqLM i -> HashSet (SeqLM i)
+generationPattern pr slm = hsslm 
+   where
+      hsslm = foldl1 (<>) $ map (i->let
+         li = [ x | x >= 0, x < (Seq.length slm), x <- [i-pr, i-pr +1 .. i+pr]]
+         in HSet.singletone $ foldl1 (<>) $ map (\j-> Seq.singletone (index slm j)
+	    ) li
+	 ) lei
+      lei = join $ map (\dppr@(dp,pointR)-> let
+         in Seq.elemIndicesR slm dppr
+	 ) lfreMidleMax
+      mfre = seqToFrequency slm
+      mmaxFre = Map.lookupMax mfre
+      lfreMidleMax = join $ maybeToList $ map (\(k,a)-> let
+         midK = k / 2 -- maybe 80/20, 20/80 Pareto. The parametor
+	 in fold $ fmap (\x->[x]) $ Map.filterKeys (\nk-> nk > midK) mfre
+	 ) mmxaFre
+
+distanceSeqLM :: SeqLM i -> SeqLM i -> Float
+distanceSeqLM slm1 slm2 = d / ml
+   where
+      ml = realToFrac $ max (Seq.length slm1) (Seq.length slm2) 
+      d = getSum $ fold $ seq.zipWith (\x y -> if x == y then Sum 1 else Sum 0) slm1 slm2
+
+type GeneralSeqLM i = SeqLM i 
+
+type SpecialHSSeqLM i = HashSet (SeqLM i)
+
+type GeneralRadius = Float
+
+generalizationPattern :: GeneralRadius -> HashSet (SeqLM i) -> (SeqLM i,SpecialHSSeqLM i, HashSet (SeqLM i))
+generalizationPattern gr hsslm = (gslm,shsseqLM,zhsslm)
+   where
+      (shsseqLM, zhsslm) = HSet.partition (\slm-> (distanceSeqLM slm gslm) > gr ) hsslm
+      gslm = foldl1 (\ (d1,slm1) (d2,slm2) -> if d1 > d2 then (d1,slm1) else (d2,slm2)) ldslm
+      ldslm = fmap (\slm1-> let
+         ad = foldl1 (+) $ fmap (\slm2 -> distanceSeqLM slm1 slm2) hsslm
+	 in (ad / (realToFrac $ Seq.length hsslm), slm1)
+	 ) $ HSet.toList hsslm
