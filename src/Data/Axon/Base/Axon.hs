@@ -7,6 +7,8 @@
 
 module Data.Axon.Base.Axon where
 
+imprt Prelude as P
+
 import Control.Monad.STM
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM.TArray
@@ -759,7 +761,7 @@ midleDP dp = f $ fold $ map (\(x,y)-> (Max x,Min x, Max y, Min y)) dp
 
 type QueueWriteDP i = TQueue [DendritPatern i]
 
-type QueueReadDP i = TQueue [DendritPatern i] -- (i,i)
+type QueueReadDP i = TQueue [(DendritPatern i,(i,i))] -- (i,i)
 
 type PointAndR i = ((i,i),i)
 
@@ -791,7 +793,8 @@ dendritWriteRead s quW quR lP w = do
       updateDedritSpace s (fmap snd ldpp) 
          ( \ wn -> do
 	    ldpOut <- mapM (\ (ip,i) -> do
-	       readDendritPatern ip r
+	       dpn <- readDendritPatern ip r
+	       return (dpn,ip)
 	       ) lP
 	    atomicaly $ writeTQueue quR ldpOut
 	 ) w
@@ -834,7 +837,7 @@ dendritLinearMemory tvsDP s quW quPLM w =
       dendritWriteRead s quWdp quRdp [plm] w
       atomicaly $ do
          lrdp <- flushTQueue quRdp
-         modifyTVar tvsDP (\sdp-> sdp :>| (head lrdp,plm))
+         modifyTVar tvsDP (\sdp-> sdp :>| (head lrdp)) -- plm
       ) $ zip lPLM lldp
    
  
@@ -846,7 +849,7 @@ dendritReactLinearMemory ::
    , Random i
    , CxtAxon i w a g
    ) =>
-   TVar (SeqLM i) ->
+   SeqLM i -> -- TVar (SeqLM i) ->
    WaveStep ->
    QueueWriteDP i ->
    QueueReadDP i ->
@@ -857,14 +860,16 @@ dendritReactLinearMemory ::
       w
       b ->
    IO (Seq Bool)
-dendritReactLinearMemory tvsDP s quW quR w =
-   sdpp <- readTVarIO tvsDP 
-   let lpr = Seq.toList $ fmao snd sdpp
+dendritReactLinearMemory sdpp s quW quR w =
+   -- sdpp <- readTVarIO tvsDP 
+   let lpr = fold $ fmap ( (: []) . snd) sdpp
    dendritWriteRead s quW quR lpr w
    seqrdp <- fmap (foldl (\ b a -> b :>| (fold $ fmap HSet.singletone a)) Seq.empty) $ atomicaly $ flushTQueue quRdp
-   return $ Seq.zipWith (\ (dp,pr) hsDp -> HSet.member dp hsDp) sdpp seqrdpfoldl
+   return $ Seq.zipWith (\ (dp,pr) hsDp -> HSet.member (dp,pr) hsDp) sdpp seqrdpfoldl
 
 type HMDPf i = HashMap (DendritPatern i, PointAndR i) Int 
+
+-- frequncy generalization for reception
 
 frequencyLinearMemoryHMDP :: SeqLM i -> HMDPf i
 frequencyLinearMemoryHMDP slm = fmap getSum $ foldl1 (unionWith (<>)) $ fmap (\(dp,pr)-> HMap.singletone (dp,pr) (Sum 1) ) slm
@@ -918,3 +923,84 @@ generalizationPattern gr hsslm = (gslm,shsseqLM,zhsslm)
          ad = foldl1 (+) $ fmap (\slm2 -> distanceSeqLM slm1 slm2) hsslm
 	 in (ad / (realToFrac $ Seq.length hsslm), slm1)
 	 ) $ HSet.toList hsslm
+
+-- end frequncy generalization for reception
+-- Pattern for pattern exist for reception, but not for liniar memorym because linear memory is uneq patern for eny reception
+--
+-- type SeqR i = SeqLM i
+type SeqR i = Seq (HashSet (DendritPatern i, PointAndR i) )
+
+readReception ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxon i w a g
+   ) =>
+   WaveStep ->
+   -- QueueWriteDP i ->
+   SeqLM i ->
+   [PointAndR i] ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO (SeqR i)
+readReception ws seqLM lpr w = do
+   quWdp <- newTQueueIO 
+   quRdp <- newtQueueIO 
+   mapM (\ dppr -> do 
+      atomicaly $ writeTQueue quWdp (fst dppr)
+      ) seqLM
+   dendritWriteRead ws quWdp quRdp lpr w
+   seqrdp <- fmap (foldl (\ b a -> b :>| (fold $ fmap HSet.singletone a)) Seq.empty) $ atomicaly $ flushTQueue quRdp 
+   return seqrdp 
+
+type Reception i = HashSet (DendritPatern i, PointAndR i) 
+
+type ReceptionBind i = HashMap (HashSet (DendritPatern i, PointAndR i)) (DendritPatern i, PointAndR i, Int)
+
+type ReceptionBind_A i = HashMap (HashSet (DendritPatern i, PointAndR i)) [Int]
+
+indexedSeq i = Seq.iterateN i (+ 1) 0 
+
+receptionBind_A ::    
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxon i w a g
+   ) =>
+   WaveStep ->
+   -- QueueWriteDP i ->
+   SeqLM i ->
+   [Reception i] ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO (ReceptionBind_A i)
+receptionBind_A ws seqLM lr w =
+   quWdp <- newTQueueIO 
+   quRdp <- newtQueueIO
+   fmap foldl $ mapM (\hsdppr->do
+      atomicaly $ writeTQueue quWdp $ fmap (fst) $ HSet.toLisst hsdppr
+      seqBool <- dendritReactLinearMemory seqLM ws quWdp quRdp w
+      let sib = Seq.filter (\(i,b)->b) $ Seq.zip (indexedSeq $ Seq.length seqBool) seqBool
+      return $ foldl (HMap.unionWith (<>)) (HMap.epmty) $ fmap (\(i,_)-> HMap.singletone hsdppr [i]) sib
+      ) lr
+
+type FrecuencyReception i = Map Int [(HashSet (DendritPatern i, PointAndR i))] -- Not emty and only one ???????
+type IndexReception i = Map Int [(HashSet (DendritPatern i, PointAndR i))]
+
+indexReception :: ReceptionBind_A i -> IndexReception i 
+indexReception rba = foldl (Map.unionWith (<>)) (Map.empty) $ 
+   mapWithKey (\ k li -> foldl (Map.unionWith (<>)) (Map.empty) $ fmap (\i-> Map.singletone i [k]) li) rba
+
+frecuencyReception :: ReceptionBind_A i -> FrecuencyReception i 
+frecuencyReception rba = foldl (Map.unionWith (<>)) (Map.empty) $ 
+   mapWithKey (\ k li -> Map.singletone (P.length li) [k]) rba
