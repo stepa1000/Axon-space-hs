@@ -901,33 +901,28 @@ generationPattern pr slm = hsslm
          midK = k / 2 -- maybe 80/20, 20/80 Pareto. The parametor
 	 in fold $ fmap (\x->[x]) $ Map.filterKeys (\nk-> nk > midK) mfre
 	 ) mmxaFre
-
-distanceSeqLM :: SeqLM i -> SeqLM i -> Float
-distanceSeqLM slm1 slm2 = d / ml
+-- end frequncy generalization for reception
+distanceSeq :: Eq a => Seq a -> Seq a -> Float
+distanceSeq slm1 slm2 = d / ml
    where
       ml = realToFrac $ max (Seq.length slm1) (Seq.length slm2) 
       d = getSum $ fold $ seq.zipWith (\x y -> if x == y then Sum 1 else Sum 0) slm1 slm2
 
-type GeneralSeqLM i = SeqLM i 
-
-type SpecialHSSeqLM i = HashSet (SeqLM i)
-
 type GeneralRadius = Float
 
-generalizationPattern :: GeneralRadius -> HashSet (SeqLM i) -> (SeqLM i,SpecialHSSeqLM i, HashSet (SeqLM i))
+generalizationPattern :: GeneralRadius -> HashSet (Seq a) -> (Seq a,HashSet (Seq a), HashSet (Seq a))
 generalizationPattern gr hsslm = (gslm,shsseqLM,zhsslm)
    where
-      (shsseqLM, zhsslm) = HSet.partition (\slm-> (distanceSeqLM slm gslm) > gr ) hsslm
+      (shsseqLM, zhsslm) = HSet.partition (\slm-> (distanceSeq slm gslm) > gr ) hsslm
       gslm = foldl1 (\ (d1,slm1) (d2,slm2) -> if d1 > d2 then (d1,slm1) else (d2,slm2)) ldslm
       ldslm = fmap (\slm1-> let
          ad = foldl1 (+) $ fmap (\slm2 -> distanceSeqLM slm1 slm2) hsslm
 	 in (ad / (realToFrac $ Seq.length hsslm), slm1)
 	 ) $ HSet.toList hsslm
 
--- end frequncy generalization for reception
 -- Pattern for pattern exist for reception, but not for liniar memorym because linear memory is uneq patern for eny reception
 --
--- type SeqR i = SeqLM i
+-- type SeqR i != SeqLM i
 type SeqR i = Seq (HashSet (DendritPatern i, PointAndR i) )
 
 readReception ::   
@@ -962,7 +957,7 @@ type Reception i = HashSet (DendritPatern i, PointAndR i)
 
 type ReceptionBind i = HashMap (HashSet (DendritPatern i, PointAndR i)) (DendritPatern i, PointAndR i, Int)
 
-type ReceptionBind_A i = HashMap (HashSet (DendritPatern i, PointAndR i)) [Int]
+type ReceptionBind_A i = HashMap (HashSet (DendritPatern i, PointAndR i)) (Set Int)
 
 indexedSeq i = Seq.iterateN i (+ 1) 0 
 
@@ -991,10 +986,10 @@ receptionBind_A ws seqLM lr w =
       atomicaly $ writeTQueue quWdp $ fmap (fst) $ HSet.toLisst hsdppr
       seqBool <- dendritReactLinearMemory seqLM ws quWdp quRdp w
       let sib = Seq.filter (\(i,b)->b) $ Seq.zip (indexedSeq $ Seq.length seqBool) seqBool
-      return $ foldl (HMap.unionWith (<>)) (HMap.epmty) $ fmap (\(i,_)-> HMap.singletone hsdppr [i]) sib
+      return $ foldl (HMap.unionWith (<>)) (HMap.epmty) $ fmap (\(i,_)-> HMap.singletone hsdppr (Set.singletone i)) sib
       ) lr
 
-type FrecuencyReception i = Map Int [(HashSet (DendritPatern i, PointAndR i))] -- Not emty and only one ???????
+type FrecuencyReception i = Map Int [(HashSet (DendritPatern i, PointAndR i),Set Int)] -- List is Not emty and only one ???????
 type IndexReception i = Map Int [(HashSet (DendritPatern i, PointAndR i))]
 
 indexReception :: ReceptionBind_A i -> IndexReception i 
@@ -1003,4 +998,42 @@ indexReception rba = foldl (Map.unionWith (<>)) (Map.empty) $
 
 frecuencyReception :: ReceptionBind_A i -> FrecuencyReception i 
 frecuencyReception rba = foldl (Map.unionWith (<>)) (Map.empty) $ 
-   mapWithKey (\ k li -> Map.singletone (P.length li) [k]) rba
+   mapWithKey (\ k li -> Map.singletone (P.length li) [(k,li)]) rba
+
+type DivFrecuency = Float
+
+frecuencyPartition :: DivFrecuency -> FrecuencyReception i -> (FrecuencyReception i, FrecuencyReception i)
+frecuencyPartition df fr = maybe (Map.empty,Map.empty) id $ mapM (\(k,lhsdpprli) -> let 
+   hk = round $ (realToFrac k) / df
+   in Map.partition (\x-> x >= hk) fr
+   ) mmf
+   where
+      mmf = lookupMax fr
+
+--type PatternR = Int
+
+type PatternSeq i = Seq 
+
+generationPatternReception :: DivFrecuency -> PatternRadius -> ReceptionBind_A i -> [SeqR i]
+generationPatternReception df pr rb = fold $ fmap (\ lhsdppri -> join $ fmap (\ (hs,si) -> let
+      li = fold $ fmap (: []) si
+      in fmap (\ i -> let
+            lhs = fmap (\ j -> maybe HSet.empty id $ fmap (\ lhs -> P.head lhs) $ Map.lookup j ir
+	    in foldl (\ s hs -> s :>| hs) Seq.empty lhs
+	    ) [x | x <- (i-pr,i-pr+1 .. i+pr) ]
+	 ) li
+      ) lhsdppri
+   ) fr
+   where
+      (frU,_) = frecuencyPartition df fr
+      fr = frecuencyReception rb
+      ir = indexReception rb
+{-
+distanceSeqR :: SeqR i -> SeqR i -> FLoat
+distanceSeqR slm1 slm2 = d / ml  -- COPYPASTA !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! distanceSeqLM
+   where
+      ml = realToFrac $ max (Seq.length slm1) (Seq.length slm2) 
+      d = getSum $ fold $ seq.zipWith (\x y -> if x == y then Sum 1 else Sum 0) slm1 slm2
+-}
+-- generalizationPatternReception :: [SeqR i] -> (SeqR i, HashSet (SeqR i))
+-- generalizationPatternReception lsri = 
