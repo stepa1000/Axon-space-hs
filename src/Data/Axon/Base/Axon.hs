@@ -865,7 +865,7 @@ dendritReactLinearMemory sdpp s quW quR w =
    let lpr = fold $ fmap ( (: []) . snd) sdpp
    dendritWriteRead s quW quR lpr w
    seqrdp <- fmap (foldl (\ b a -> b :>| (fold $ fmap HSet.singletone a)) Seq.empty) $ atomicaly $ flushTQueue quRdp
-   return $ Seq.zipWith (\ (dp,pr) hsDp -> HSet.member (dp,pr) hsDp) sdpp seqrdpfoldl
+   return $ Seq.zipWith (\ (dp,pr) hsDp -> HSet.member (dp,pr) hsDp) sdpp seqrdp
 
 type HMDPf i = HashMap (DendritPatern i, PointAndR i) Int 
 
@@ -1000,12 +1000,12 @@ frecuencyReception :: ReceptionBind_A i -> FrecuencyReception i
 frecuencyReception rba = foldl (Map.unionWith (<>)) (Map.empty) $ 
    mapWithKey (\ k li -> Map.singletone (P.length li) [(k,li)]) rba
 
-type DivFrecuency = Float
+type DivFrecuency = Float -- Int -- Float
 
 frecuencyPartition :: DivFrecuency -> FrecuencyReception i -> (FrecuencyReception i, FrecuencyReception i)
 frecuencyPartition df fr = maybe (Map.empty,Map.empty) id $ mapM (\(k,lhsdpprli) -> let 
    hk = round $ (realToFrac k) / df
-   in Map.partition (\x-> x >= hk) fr
+   in Map.partition (\x-> x >= df) fr
    ) mmf
    where
       mmf = lookupMax fr
@@ -1014,8 +1014,8 @@ frecuencyPartition df fr = maybe (Map.empty,Map.empty) id $ mapM (\(k,lhsdpprli)
 
 type PatternSeq i = Seq 
 
-generationPatternReception :: DivFrecuency -> PatternRadius -> ReceptionBind_A i -> [SeqR i]
-generationPatternReception df pr rb = fold $ fmap (\ lhsdppri -> join $ fmap (\ (hs,si) -> let
+generationPatternReception :: DivFrecuency -> PatternRadius -> ReceptionBind_A i -> HeshSet (SeqR i)
+generationPatternReception df pr rb = fold $ fmap (HSet.singletone) $ fold $ fmap (\ lhsdppri -> join $ fmap (\ (hs,si) -> let
       li = fold $ fmap (: []) si
       in fmap (\ i -> let
             lhs = fmap (\ j -> maybe HSet.empty id $ fmap (\ lhs -> P.head lhs) $ Map.lookup j ir
@@ -1037,3 +1037,261 @@ distanceSeqR slm1 slm2 = d / ml  -- COPYPASTA !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 -}
 -- generalizationPatternReception :: [SeqR i] -> (SeqR i, HashSet (SeqR i))
 -- generalizationPatternReception lsri = 
+
+type MemoryPattern i = HashMap (SeqR i) (HashSet (SeqR i))
+
+dendritPatternMemory ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxon i w a g
+   ) =>
+   TVar (MemoryPattern i) ->
+   WaveStep ->
+   SeqR i ->
+   HashSet (SeqR i) ->
+   -- QueueReadDP i ->
+   QueuePLM i ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO ()
+dendritPatternMemory tvsDP s srg hss quPLM w =
+   lPLM <- atomicaly $ flushTQueue quPLM
+   -- lldp <- atomicaly $ flushTQueue quW
+   quWdp <- newTQueueIO 
+   quRdp <- newtQueueIO
+   let (pM : lMN) = lPLM
+   pG <- f quWdp quRdp srg pM w
+   shshdp <- fmap (fold . fmap HSet.singeltone) $ mapM (\ (plm,ldp) -> do
+      f quWdp quRdp ldp plm w
+      ) $ zip lMN $ HSet.toList $ (fmap . fmap) fst hss
+   atomicaly $ modifyTVar tvsDP (\ mp -> 
+      HMap.alter (\mhss -> (do
+         hss <- mhss
+	 return $ union hss shshdp
+	 ) <|> (return shshdp)
+	 ) pg mp
+      )
+   where
+      f quWdp quRdp ldp plm w = do 
+         shdp <- foldl (\ s dp -> do
+	    atomivaly $ do
+               writeTQueue quWdp $ HSet.toList dp
+	    dendritWriteRead s quWdp quRdp [plm] w
+atomicaly $ do
+               lrdp <- flushTQueue quRdp
+               return $ s :>| (head lrdp) -- plm
+	    ) (Seq.empty) ldp
+	 return shdp
+
+dendritReactSeqR ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxon i w a g
+   ) =>
+   SeqR i -> -- [SeqR i] -> -- TVar (SeqLM i) ->
+   WaveStep ->
+   QueueWriteDP i ->
+   QueueReadDP i ->
+   -- QueuePLM i ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO (Seq Bool)
+dendritReactSeqR lsdpp s quW quR w =
+   -- sdpp <- readTVarIO tvsDP 
+   let lpr = fold $ fmap ( (: []) . HSet.toList . fmap snd ) sdpp  -- join $ (fmap . fmap) ( (: []) . HSet.toList . fmap snd ) lsdpp
+   dendritWriteRead s quW quR lpr w
+   seqrdp <- fmap (foldl (\ b a -> b :>| (fold $ fmap HSet.singletone a)) Seq.empty) $ atomicaly $ flushTQueue quRdp
+   return Seq.zipWith (\ (dp,pr) hsDp -> HSet.member (dp,pr) hsDp) sdpp seqrdp
+
+dendritReactSeqRHM ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxon i w a g
+   ) =>
+   TVar (HashMap (SeqR i) (Seq Bool)) -> -- [SeqR i] -> -- TVar (SeqLM i) ->
+   WaveStep ->
+   QueueWriteDP i ->
+   QueueReadDP i ->
+   -- QueuePLM i ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO (Int)
+dendritReactSeqRHM tvhmSiSb ws quWdp quRdp w =
+   hmSiSb <- readTVarIO tvhmSiSb 
+   let lSR = HMap.keys hmSiSb
+   let maxL = getMax $ fold $ fmap (Max . Seq.length) lSR
+   lldp <- atomicaly $ flushTQueue quWdp
+   let lengthLDP = P.length lldp
+   mapM (\(i,ldp)-> do
+      hmSiSbN <- readTVarIO tvhmSiSb 
+      let lSRK = HMap.keys hmSiSbN
+      let lhsPP = catMaybes $ fmap (\s-> lookup i s >>= (\pp-> return (pp,s))) lSRK
+      -- let hsPP = fold lhsPP
+      atomicaly $ writeTQueue quWdp [ldp]
+      dendritWriteRead s quWdp quRdp (join $ fmap (HSet.toList) lhsPP) w
+      ldpO <- fmap head $ atomicaly $ flushTQueue quRdp
+      mapM (\ dprp -> mapM (\ (hsPP,s) -> do
+            if HSet.member dprp hsPP 
+	       then do
+	          modifyTVar tvhmSiSb (adjust (:>| True) s)
+	       else return ()
+	    ) lhsPP
+         ) ldpO
+      modifyTVar tvhmSiSb (fmap (\s-> if Seq.lendth s > i then s else s :>| False))  
+      ) $ P.zip [0 .. maxL] lldp
+   return lengthLDP
+   
+minDistancePattern :: HashMap (SeqR i) (Seq Bool) -> (SeqR i, Float)
+minDistancePattern hm = HMap.foldlWithKey (\ k v (s,maxS) -> if v >= maxS then (k,v) else (s,msxS)) (Empty, 0) $ 
+   fmap (\ sb1 -> getMax $ fold $ fmap (\sb2 -> let 
+      d = distanceSeq sb1 sb2
+      in Max d
+      ) hm ) hm 
+-- distanceSeq
+lengthTQueue qu = atomicaly $ do
+   la <- flushTQueue qu
+   mapM (\a-> writeTQueue qu a) la -- reverse ????????????????????? 
+   return $ P.lenght la
+
+dendritReactPatternMemory ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxon i w a g
+   ) =>
+   MemoryPattern i -> -- TVar (SeqLM i) ->
+   WaveStep ->
+   QueueWriteDP i ->
+   QueueReadDP i ->
+   -- QueuePLM i ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO (Int,SeqR i, Float, SeqR i, Float)
+dendritReactPatternMemory mp ws quWdp quRdp w =
+   -- lQuRdp <- lengthTQueue quRdp
+   la <- atomicaly $ flushTQueue qu 
+   mapM (\a-> atomicaly $ writeTQueue qu a) la
+   let lK = HMap.keys mp
+   let hmKS = fmap (\ k -> HMap.singletone k (Seq.empty)) lK
+   tvhmKS <- newTVarIO hmKS
+   ldp <- dendritReactSeqRHM tvhmKS ws quWdp quRdp w
+   hmKSN <- readTVarIO tbhmKS
+   let (minPatt,t1) = minDistancePattern hmKSN
+   mapM (\a-> atomicaly $ writeTQueue qu a) la -- Reapit block cod !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   let hsSeqIn = HSet.insert minPatt (mp HMap.! minPatt) 
+   let hmKS2 = fmap (\ k -> HMap.singletone k (Seq.empty)) $ HSet.toList hsSeqIn
+   atomicaly $ writeTVar tvhmKS hmKS2
+   dendritReactSeqRHM tvhmKS ws quWdp quRdp w
+   hmKSN2 <- readTVarIO tbhmKS
+   let (minPatt2,t2) = minDistancePattern hmKSN2
+   return (ldp,minPatt2,t2,minPatt,t1)
+
+data DendritState 
+   = LinearMemory
+   | PatternMemory
+
+data DendritIO i a = DendritIO 
+   { receptionIO :: IO (a, MemoryPattern i)
+   , reaction :: (Int,SeqR i, Float, SeqR i, Float) -> a -> IO ()
+   , bindDendrit :: HashMap a (Reception i)
+   , reBindDendrit :: HashMap (Reception i) a 
+   , localMemPattern :: TVar (MemoryPattern i) 
+   , localMemLinear :: TVar (SeqLM i)
+   , freeLinearPoint :: QueuePLM i
+   , maxMemLinear :: Int
+   , lastReaction :: TVar (Int,SeqR i, Float, SeqR i, Float)
+   , receptionInterval :: TVar (Seq a)
+   , receptionIntervalMax :: Int
+   , stateDendrit :: TVar DendritState
+   , dendritWaveStep :: WaveStep
+   , generatorDivF :: DivFrecuency 
+   , generatorPatternR :: PatternRadius
+   , generalizationRadius :: GeneralRadius
+   }
+
+generalizationCycle :: :
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxon i w a g
+   ) =>
+   HeshSet (SeqR i) ->
+   DendritIO i b ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO (HeshSet (SeqR i)) 
+generalizationCycle hsR dio w = do
+   let (gPattern,inPattern,outPattern) = generalizationPattern (generalizationRadius dio) hsR
+   dendritPatternMemory 
+
+dendritIO ::
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen g
+   , Random i
+   , CxtAxon i w a g
+   ) =>
+   DendritIO i b ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO () 
+dendritIO dio w = do
+   (b,mpS) <- receptionIO dio
+   dst <- readTVarIO $ stateDendrit dio
+   let bdAR = bindDendrit dio
+   let mrecIn = HMap.lookup b bdAR 
+   case dst of
+      LinearMemory -> do
+         mapM (\recIn-< do
+	    quWdp <- newTQueueIO 
+	    atomicaly $ writeTQueue quWdp $ fmap fst $ HSet.toList recIn
+	    dendritLinearMemory 
+	       (localMemLinear dio) (dendritWaveStep dio) quWdp (freeLinearPoint dio) w
+	    seqLM <- readTVarIO $ localMemLinear dio 
+	    if Seq.length seqLM > (maxMemLinear dio)
+	       then 
+	          atolicaly $ writeTVar (stateDendrit dio) PatternMemory
+	    ) mrecIn
+      PatternMemory -> do
+         lMP <- readTVarIO (localMemPattern dio)
+         if (HMap.size lMP) == 0 
+	    then do
+	       let bDR = bindDendrit dio
+	       let lR = HMap.elems
+	       lML <- readTVarIO (localMemLinear dio)
+	       bA <- receptionBind_A (dendritWaveStep dio) lML lR w
+	       hsGPR <- generationPatternReception 
+	    else do
+
