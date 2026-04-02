@@ -775,16 +775,17 @@ type InitWIODPMK1 g w i a =
    , CxtAxon i w a g 
    )
 
-data AxonDendritSetting w a i = AxonDendritSetting 
+data AxonDendritSetting a i = AxonDendritSetting 
    { lowerIndex :: (i,i)
    , uperIndex :: (i,i)
    , proxyG :: Proxy g
    , lengthBox :: i
    , listLine :: TVar [(NeironPoint i,(i,i))]
+   , adsChanceAxon :: ChanceAxon
    }
 
 initNeironWIO :: InitWIODPMK1 g w i a => 
-   AxonDendritSetting w a i -> 
+   AxonDendritSetting a i -> 
    w () -> 
    IO ( W.AdjointT
            (AdjArrayL (i,i) a)
@@ -797,7 +798,7 @@ initNeironWIO axdes w = do
    return $ adjEnv tarr w
 
 initAxonForNeironBoxWIO :: InitWIODPMK1 g w i a => 
-   AxonDendritSetting w a i -> 
+   AxonDendritSetting a i -> 
    W.AdjointT
       (AdjArrayL (i,i) a)
       (AdjArrayR (i,i) a)
@@ -807,3 +808,32 @@ initAxonForNeironBoxWIO :: InitWIODPMK1 g w i a =>
 initAxonForNeironBoxWIO axdes w = do
    lnpi <- initAxonForNeironBox (proxyG axdes) (lengthBox axdes) w
    atomicaly $ modifyTVar (listLine axdes) (lnpi ++)
+
+allAxogenesPointWIO :: InitWIODPMK1 StdGen w i a => 
+   AxonDendritSetting a i -> 
+   W.AdjointT
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b
+   IO ()
+allAxogenesPointWIO axdes w = do
+   std <- initStdGen
+   tvstd newTVarIO std
+   allAxogenesPoint tvstd (adsChanceAxon axdes)
+
+initializationADendrit :: InitWIODPMK1 StdGen w i a => 
+   AxonDendritSetting a i ->
+   w () ->
+   IO ( W.AdjointT
+           (AdjArrayL (i,i) a)
+           (AdjArrayR (i,i) a)
+           w
+           b)
+initializationADendrit axdes w = do
+   adjArr <- initNeironWIO axdes w
+   initAxonForNeironBoxWIO axdes adjArr
+   allAxogenesPointWIO  axdes adjArr
+   return adjArr
+
+
