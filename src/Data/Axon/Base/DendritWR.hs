@@ -43,9 +43,9 @@ type QueueWriteDP i = TQueue [DendritPatern i]
 
 type QueueReadDP i = TQueue [(DendritPatern i,(i,i))] -- (i,i)
 
-type PointAndR i = ((i,i),i)
+-- type PointAndR i = ((i,i),i)
 
-type WaveStep = Float 
+-- type WaveStep = Float 
 
 dendritWriteRead ::  
    ( Comonad w-- CxtAxon i w a g

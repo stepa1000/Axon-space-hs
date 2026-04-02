@@ -649,21 +649,22 @@ updateDedritSpace :: -- GOOD abstract the
         (AdjArrayR (i,i) a)
         w
         b ->
-     IO ()
+     IO c
     ) ->
     W.AdjointT 
       (AdjArrayL (i,i) a)
       (AdjArrayR (i,i) a)
       w
       b ->
-   IO () 
+   IO c
 updateDedritSpace s li f w = do
   forConcurrently_ li (\i-> do
     waveInterval s i updateIn2RUpAxogenesPoint w 
     )
   -- waveInterval s i updateIn2RUpAxogenesPoint w
-  f w
+  c <- f w
   waveInterval s (head li) updateIn2RUpClearAxoginesPoint w -- all array to false maybe ?????????!!!!!!!!!!!
+  return c
    
 upIn2RUpAxoginesPWave rA p0 w = waveInterval rA p0 updateIn2RUpAxogenesPoint 
 
