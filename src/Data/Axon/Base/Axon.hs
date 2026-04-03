@@ -150,25 +150,6 @@ adjCoDrowLine p0@(x0,y0) p1@(x1,y1) wa =
 
 adjCoDrowLineConst p0 p1 wa = adjCoDrowLine p0 p1 (fmap const wa) 
 
-cube :: Picture
-cube = Polygon [(0,0),(1,0),(1,1),(0,1),(0,0)]
-
-adjCoDrowArray :: 
-  ( Comonad w
-  , Real x
-  , Ix x
-  ) =>
-  (a -> Picture) ->
-  W.AdjointT 
-    (AdjArrayL (x,x) a)
-    (AdjArrayR (x,x) a)
-    w 
-    b ->
-  STM Picture
-adjCoDrowArray f w = do
-  lip <- getAssocs (coask w)
-  return $ Pictures $ fmap (\((x,y),a)-> Translate (realToFrac x) (realToFrac y) $ f a ) lip
-
 class HasMapVarT i a where
   mapVarTBool :: Lens' a (Map.Map i (TVar Bool, Set.Set i))
 
@@ -762,6 +743,50 @@ midleDP dp = f $ fold $ map (\(x,y)-> (Max x,Min x, Max y, Min y)) dp
    where
       f (maxX,minX,maxY,MinY) = ((maxX - minX / (realToFrac 2)) + minX ,(maxY - minY / (realToFrac 2)) + minY )
 
+updateDendritList :: 
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   ) => 
+   WaveStep ->
+   [PointAndR i] ->
+   [[(DendritPatern i,(i,i))]] ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO [(DendritPatern i, PointAndR i)] -- (HashSet (DendritPatern i), PointAndR i)
+updateDendritList ws lpr ldp w = do
+   lift $ mapConcurrently (\dp-> atomicaly $ writeDendritPatern dp w) $ fmap fst ldp
+   ldp <- updateDedritSpace ws (fmap snd ldp) $ \ wn -> do
+      mapM (\lpr -> do
+         mapConcurrently (\(p,r)-> do
+            dpn <- atomicaly $ readDendritPatern p r
+            return (HSet.singletone dpn,(p,r))
+	    ) lpr 
+         ) llpr
+   return ldp
+
+updateDendritListAnyDP :: 
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   ) => 
+   WaveStep ->
+   [PointAndR i] ->
+   [[DendritPatern i]] ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO [(DendritPatern i, PointAndR i)] -- (HashSet (DendritPatern i), PointAndR i)
+updateDendritListAnyDP ws lpr lldp w = do
+   updateDendritList ws lpr ( (fmap . fmap) (\x-> (x, midleDP x)) lldp) w
+
 calss InitWM w m a where
    initWM :: w () -> m a
 
@@ -782,7 +807,12 @@ data AxonDendritSetting a i = AxonDendritSetting
    , lengthBox :: i
    , listLine :: TVar [(NeironPoint i,(i,i))]
    , adsChanceAxon :: ChanceAxon
+   , adsWaveStep :: WaveStep
    }
+
+initAxonDendritSetting li ui pg lb aca = do
+   tvl <- newTVarIO []
+   return $ AxonDendritSetting li ui pg lb tvl aca 
 
 initNeironWIO :: InitWIODPMK1 g w i a => 
    AxonDendritSetting a i -> 
@@ -829,11 +859,37 @@ initializationADendrit :: InitWIODPMK1 StdGen w i a =>
            (AdjArrayL (i,i) a)
            (AdjArrayR (i,i) a)
            w
-           b)
+           ())
 initializationADendrit axdes w = do
    adjArr <- initNeironWIO axdes w
    initAxonForNeironBoxWIO axdes adjArr
    allAxogenesPointWIO  axdes adjArr
    return adjArr
+
+updateADendrit :: InitWIODPMK1 StdGen w i a => 
+   AxonDendritSetting a i -> 
+   [PointAndR i] ->
+   [[DendritPatern i]] ->
+   W.AdjointT
+           (AdjArrayL (i,i) a)
+           (AdjArrayR (i,i) a)
+           w
+           () ->
+   IO [(DendritPatern i, PointAndR i)]
+updateADendrit axdes lpr ldp w = do
+   updateDendritListAnyDP (adsWaveStep axdes) lpr ldp w
+
+pingPongDendrit :: InitWIODPMK1 StdGen w i a => 
+   AxonDendritSetting a i -> 
+   W.AdjointT
+           (AdjArrayL (i,i) a)
+           (AdjArrayR (i,i) a)
+           w
+           () ->
+   IO Bool
+pingPongDendrit axdes w = 
+   
+
+
 
 
