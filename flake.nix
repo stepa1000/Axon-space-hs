@@ -9,8 +9,10 @@
         pkgs = nixpkgs.legacyPackages.${system};
 
         hPkgs =
-          pkgs.haskell.packages."ghc982"; # need to match Stackage LTS version
+          pkgs.haskell.packages."ghc910"; # need to match Stackage LTS version
                                            # from stack.yaml snapshot
+        
+        # hP10 = pkgs.haskell.packages."ghc910"; 
 
         myDevTools = [
           hPkgs.ghc # GHC compiler in the desired version (will be available on PATH)
@@ -32,6 +34,18 @@
           pkgs.libGL
           pkgs.libGLU
 	  pkgs.freeglut
+	  #pkgs.alex
+	  #hPkgs.c2hs
+	  #hPkgs.cpphs
+	  #hPkgs.doctest
+	  #hPkgs.ghcjs-base
+	  #hPkgs.ghcjs-pkgs
+	  #hPkgs.greencard
+	  #hPkgs.happy
+	  #hPkgs.hmake
+	  #hPkgs.jhs
+	  #hPkgs.pkg-config
+	  #hPkgs.uhc
         ];
 
         # Wrap Stack to work with our Nix integration. We don't want to modify
