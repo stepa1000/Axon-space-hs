@@ -41,6 +41,7 @@ import Data.Generics.Product.Fields
 
 import Data.Axon.Base.Axon
 
+main = mainPingPong 
 
 cube :: Picture
 cube = Polygon [(0,0),(1,0),(1,1),(0,1),(0,0)]
@@ -50,13 +51,13 @@ adjCoDrowArray ::
   , Real x
   , Ix x
   ) =>
-  (a -> STM Picture) ->
+  (a -> IO Picture) ->
   W.AdjointT 
     (AdjArrayL (x,x) a)
     (AdjArrayR (x,x) a)
     w 
     b ->
-  STM Picture
+  IO Picture
 adjCoDrowArray f w = do
   lip <- getAssocs (coask w)
   lp <- mapM (\((x,y),a)-> fmap (Translate (realToFrac x) (realToFrac y)) $ f a ) lip
@@ -73,7 +74,7 @@ adjCoDrowArrayNeiron ::
     (AdjArrayR (x,x) a)
     w 
     b ->
-  STM Picture
+  IO Picture
 adjCoDrowArrayNeiron w = do
   adjCoDrowArray (\a-> do
      readTVarIO $ a^.neiron
@@ -107,8 +108,24 @@ initializationADendritBD ::
            Identity
            ())
 initializationADendritBD = do
-   iads <- initAxonDendritSetting (0,0) (1000,1000) Proxy 11 (1,3) 
+   iads <- initAxonDendritSetting (0,0) (1000,1000) Proxy 11 3 (1,3) 6 (div 81 3) -- 27
    w <- initializationADendrit iads (Identity ())
    return (iads,w)
 
-
+mainPingPong :: IO ()
+mainPingPong = do
+   (axdes,w) <- initializationADendritBD 
+   tvendDF <- newTVarIO False
+   tvnowPic <- newTVarIO $ Pictures []
+   --forkIO $ fDrow tvendDF tvnowPic w
+   forkIO $ fPP tvendDF tvnowPic axdes w
+   animateIO 
+      (InWindow "Dendrit PingPong" black)
+      (\_-> fDrow w )
+      (\_-> return ())
+   where
+      fPP tvDF tvP axdes w = do
+         pbf <- pingPongDendrit axdes w
+         atomicaly $ writeTVar tvDF True
+	 print pdf
+      fDrow w = adjCoDrowArrayNeiron w

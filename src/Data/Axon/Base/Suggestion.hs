@@ -144,11 +144,6 @@ sensPatern s dp1 dp2 = (realToFrac x)/(realToFrac l) > s
       (Sum x) = foldMap (\p-> if member p dp2 then Sum 1 else Sum 0) dp1
       l = max (size dp1) (size dp2)
 
-distancePatern :: DendritPatern i -> DendritPatern i -> Int
-distancePatern dp1 dp2 = x
-   where
-      (Sum x) = foldMap (\p-> if member p dp2 then Sum 1 else Sum 0) dp1
-
 updateReactionDP ::  
    ( Comonad w-- CxtAxon i w a g
    , Ix i

@@ -683,7 +683,30 @@ generateDendritPatern g p0@(px,py) r w k = do
             p <- randomRSTM g ((pxA,pyA),(pxB,pyB))
             return $ Set.singleton p
 	    ) (0..k)
-         
+
+generateDendritPaternIO ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , RandomGen StdGen
+   , Random i
+   , CxtAxon i w a StdGen
+   ) => 
+   TVar StdGen ->
+   (i,i) ->
+   i ->
+   Int -> 
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   STM (DendritPatern i)
+generateDendritPaternIO p r k w = do
+   std <- getStdGen
+   tvstd <- newTVarIO std
+   atomicaly $ generateDendritPatern tvstd p r k w
+	
 writeDendritPatern :: 
    ( Comonad w-- CxtAxon i w a g
    , Ix i
@@ -805,14 +828,16 @@ data AxonDendritSetting a i = AxonDendritSetting
    , uperIndex :: (i,i)
    , proxyG :: Proxy g
    , lengthBox :: i
+   , lengthPattern :: i
    , listLine :: TVar [(NeironPoint i,(i,i))]
    , adsChanceAxon :: ChanceAxon
    , adsWaveStep :: WaveStep
+   , trayGeneration :: Int
    }
 
-initAxonDendritSetting li ui pg lb aca = do
+initAxonDendritSetting li ui pg lb lp aca ws tg = do
    tvl <- newTVarIO []
-   return $ AxonDendritSetting li ui pg lb tvl aca 
+   return $ AxonDendritSetting li ui pg lb lp tvl aca ws tg
 
 initNeironWIO :: InitWIODPMK1 g w i a => 
    AxonDendritSetting a i -> 
@@ -879,6 +904,11 @@ updateADendrit :: InitWIODPMK1 StdGen w i a =>
 updateADendrit axdes lpr ldp w = do
    updateDendritListAnyDP (adsWaveStep axdes) lpr ldp w
 
+distancePatern :: DendritPatern i -> DendritPatern i -> Int
+distancePatern dp1 dp2 = x
+   where
+      (Sum x) = foldMap (\p-> if member p dp2 then Sum 1 else Sum 0) dp1
+
 pingPongDendrit :: InitWIODPMK1 StdGen w i a => 
    AxonDendritSetting a i -> 
    W.AdjointT
@@ -886,10 +916,16 @@ pingPongDendrit :: InitWIODPMK1 StdGen w i a =>
            (AdjArrayR (i,i) a)
            w
            () ->
-   IO Bool
+   IO (Bool, Float)
 pingPongDendrit axdes w = 
+   let v = lengthPattern axdes
+   let p1 = (\(x,y)->(x+v,y+v)) (lowerIndex axdes)
+   let p2 = (\(x,y)->(x-v,y-v)) (uperIndex axdes)
+   dp1 <- generateDendritPaternIO p1 v (trayGeneration axdes) w
+   [(dp2,_)]<- updateADendrit axdes [(p2,v)] [[dp1]] w
+   [(dp1N,_)]<- updateADendrit axdes [(p1,v)] [[dp2]] w
+   return (dp1N == dp1, (realToFrac $ distancePatern dp1N dp1) / (realToFrac $ max (Set.size dp1N) (Set.size dp1)) )
    
-
 
 
 
