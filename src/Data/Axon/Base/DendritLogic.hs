@@ -76,7 +76,7 @@ class Memorize i a where
    lPatternMax :: Lens' a Int
    lLenghtPattern :: Lens' a Int
 
-dlMemorizeRight ::  
+memorizeRight ::  
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
@@ -90,8 +90,135 @@ dlMemorizeRight ::
       w
       b ->
    IO (Either (PointAndR i) (PointAndR i)) -- LogicT IO (Either (PointAndR i) (PointAndR i))
-dlMemorizeRight dppr w = do
+memorizeRight dppr@(dp,(p,r)) w = do
+   let arr = coask w
+   a <- readArray arr p
+   let llp = a^.lLenghtPattern
+   let lpm = a^.lPatternMax
+   if llp >= lpm 
+      then return $ Left (p,r)
+      else do
+         let seqP = a^.lPattern
+	 let mhs = Seq.lookup seqP (llp + 1)
+	 maybes (do
+	    writeArray arr p $ set lPattern (Seq.update (HSet.singletone dp) seqP) a 
+	    ) (\hs-> do
+            writeArray arr p $ set lPattern (Seq.update (HSet.insert dp hs) seqP) a
+	    ) mhs
+         return $ Right (p,r)
    
-    
+memorizeRightList ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   , Memorize i a
+   ) =>
+   [(DendritPatern i, PointAndR i)] ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO [(Either (PointAndR i) (PointAndR i))] -- 
+memorizeRightList ldp w = mapM (\ dppr -> memorizeRight dppr w) ldp 
+
+memorizeRightDL ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   , Memorize i a
+   ) =>
+   (DendritPatern i, PointAndR i) ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   LogicT IO (Either (PointAndR i) (PointAndR i)) -- 
+memorizeRightDL ldp w = do
+   lift $ memorizeRight ldp w 
+
+type ActiveMemorize i = [PointAndR i]
+
+type SeqMemorize i = Seq (PointAndR i)
+
+type TQueuePointAndR i = TQueue (PointAndR i)
+
+memorizeSeq ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   , Memorize i a
+   ) => 
+   WaveStep ->
+   TVar (ActiveMemorize i) ->
+   TVar (SeqMemorize i) ->
+   TQueuePointAndR i ->
+   [[(DendritPatern i,(i,i))]] ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   LogicT IO Bool -- (HashSet (DendritPatern i), PointAndR i)
+memorizeSeq ws tvAM tvSM quPAR ldp w = (do
+   lam <- lift $ do
+      lam <- readTVarIO tvAM
+      if P.null lam
+         then do
+	    nam <- atomicaly $ readTQueue quPAR
+	    atomicaly $ writeTVar tvAM [nam]
+	    return [nam]
+	 else return lam
+   updateDendritLogic ws lam ldp w) >>- (\ dppr -> do
+   eEC<- memorizeRightDL dppr w
+   case eEC of
+      (Left pr) -> do
+         lift $ do
+	    seqM <- readTVarIO tvSM
+	    atomicaly $ writeTVar tvSM (seqM :>| pr)
+            atomicaly $ modifyTVar tvAM (delete pr)
+	    return True
+      (Right pr) -> return False
+   )
+
+checkMemorize ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   , Memorize i a
+   ) =>
+   LogicT IO Bool ->
+   LogicT IO (Either String Int)
+checkMemorize ltiob = ifte (once $
+   (many ltiob) >>- (\lb-> do
+   return $ Right $ getSum $ fold $ fmap (\b->if b then Sum 1 else Sum 0) lb
+   )) 
+   return
+   (return $ Left "LogicT hav not elements")
+
+memorizeSeqCheck ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   , Memorize i a
+   ) => 
+   WaveStep ->
+   TVar (ActiveMemorize i) ->
+   TVar (SeqMemorize i) ->
+   TQueuePointAndR i ->
+   [[(DendritPatern i,(i,i))]] ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   LogicT IO (Either String Int) -- (HashSet (DendritPatern i), PointAndR i)
+memorizeSeqCheck ws tvAM tvSM quPAR ldp w = checkMemorize $ memorizeSeq ws tvAM tvSM quPAR ldp w 
    
 

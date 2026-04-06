@@ -11,7 +11,7 @@
         hPkgs =
           pkgs.haskell.packages."ghc910"; # need to match Stackage LTS version
                                            # from stack.yaml snapshot
-        hPOld = pkgs.haskell.packages."ghc98";
+        # hPOld = pkgs.haskell.packages."ghc98";
 
         # hP10 = pkgs.haskell.packages."ghc910"; 
 
@@ -19,34 +19,34 @@
           hPkgs.ghc # GHC compiler in the desired version (will be available on PATH)
           hPkgs.ghcid # Continuous terminal Haskell compile checker
           hPkgs.ormolu # Haskell formatter
-          hPkgs.hlint # Haskell codestyle checker
+          # hPkgs.hlint # Haskell codestyle checker
           hPkgs.hoogle # Lookup Haskell documentation
           hPkgs.haskell-language-server # LSP server for editor
           hPkgs.implicit-hie # auto generate LSP hie.yaml file from cabal
-          hPkgs.retrie # Haskell refactoring tool
+          # hPkgs.retrie # Haskell refactoring tool
           # hPkgs.cabal-install
-          stack-wrapped
+          hPkgs.stack # -wrapped
           pkgs.zlib # External C library needed by some Haskell packages
           hPkgs.OpenGL
-          #pkgs.freeglut
+          pkgs.freeglut
           hPkgs.gl
 	  hPkgs.GLUT
 	  hPkgs.GLUtil
           pkgs.libGL
           pkgs.libGLU
 	  pkgs.freeglut
-	  pkgs.alex
-	  hPOld.c2hs
-	  hPOld.cpphs
-	  hPOld.doctest
+	  #pkgs.alex
+	  #hPOld.c2hs
+	  #hPOld.cpphs
+	  #hPOld.doctest
 	  #hPOld.ghcjs
 	  #hPOld.ghcjs-pkgs
-	  hPOld.greencard
-	  hPOld.happy
+	  #hPOld.greencard
+	  #hPOld.happy
 	  #hPOld.hmake
 	  #hPOld.jhs
-	  pkgs.pkg-config
-	  pkgs.uhc
+	  #pkgs.pkg-config
+	  #pkgs.uhc
         ];
 
         # Wrap Stack to work with our Nix integration. We don't want to modify
@@ -54,19 +54,19 @@
         # - no-nix: We don't want Stack's way of integrating Nix.
         # --system-ghc    # Use the existing GHC on PATH (will come from this Nix file)
         # --no-install-ghc  # Don't try to install GHC if no matching GHC found on PATH
-        stack-wrapped = pkgs.symlinkJoin {
-          name = "stack"; # will be available as the usual `stack` in terminal
-          paths = [ pkgs.stack ];
-          buildInputs = [ pkgs.makeWrapper ];
-          postBuild = ''
-            wrapProgram $out/bin/stack \
-              --add-flags "\
-              	--no-nix \
-                --system-ghc \
-                --no-install-ghc \
-              "
-          '';
-        };
+        #stack-wrapped = pkgs.symlinkJoin {
+        #  name = "stack"; # will be available as the usual `stack` in terminal
+        #  paths = [ pkgs.stack ];
+        #  buildInputs = [ pkgs.makeWrapper ];
+        #  postBuild = ''
+        #    wrapProgram $out/bin/stack \
+        #      --add-flags "\
+	#        --nix \
+        #        --system-ghc \
+        #        --no-install-ghc \
+        #      "
+        #  '';
+        #};
       in {
         devShells.default = pkgs.mkShell {
           buildInputs = myDevTools;
