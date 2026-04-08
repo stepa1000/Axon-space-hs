@@ -163,7 +163,7 @@ memorizeSeq ::
       (AdjArrayR (i,i) a)
       w
       b ->
-   LogicT IO Bool -- (HashSet (DendritPatern i), PointAndR i)
+   LogicT IO (Bool, (i,i)) -- (HashSet (DendritPatern i), PointAndR i)
 memorizeSeq ws tvAM tvSM quPAR ldp w = (do
    lam <- lift $ do
       lam <- readTVarIO tvAM
@@ -176,13 +176,15 @@ memorizeSeq ws tvAM tvSM quPAR ldp w = (do
    updateDendritLogic ws lam ldp w) >>- (\ dppr -> do
    eEC<- memorizeRightDL dppr w
    case eEC of
-      (Left pr) -> do
+      (Left pr@(p,_)) -> do
          lift $ do
 	    seqM <- readTVarIO tvSM
 	    atomicaly $ writeTVar tvSM (seqM :>| pr)
             atomicaly $ modifyTVar tvAM (delete pr)
-	    return True
-      (Right pr) -> return False
+	    return (True,p)
+      (Right (p,_)) -> do
+         -- memoryNextSeq p w
+	 return (False,p)
    )
 
 checkMemorize ::  
@@ -192,14 +194,35 @@ checkMemorize ::
    , CxtAxon i w a g 
    , Memorize i a
    ) =>
-   LogicT IO Bool ->
+   LogicT IO (Bool,(i,i)) ->
    LogicT IO (Either String Int)
-checkMemorize ltiob = ifte (once $
-   (many ltiob) >>- (\lb-> do
-   return $ Right $ getSum $ fold $ fmap (\b->if b then Sum 1 else Sum 0) lb
+checkMemorize ltiob = ifte (
+   (many ltiob) >>- (\lb-> once $ do
+   mapM (\p-> lift $ memoryNextSeq p w) $ fmap snd lb
+   return $ Right $ getSum $ fold $ fmap (\b->if b then Sum 1 else Sum 0) $ fmap fst lb
    )) 
    return
    (return $ Left "LogicT hav not elements")
+
+memoryNextSeq ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   , Memorize i a
+   ) =>
+   (i,i) ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO ()
+memoryNextSeq p w = do
+   let arr = coask w
+   a <- readArray arr p
+   let llp = a^.lLenghtPattern
+   writeArray arr p $ set lLengthPattern (llp + 1) a
 
 memorizeSeqCheck ::   
    ( Comonad w-- CxtAxon i w a g
@@ -219,6 +242,135 @@ memorizeSeqCheck ::
       w
       b ->
    LogicT IO (Either String Int) -- (HashSet (DendritPatern i), PointAndR i)
-memorizeSeqCheck ws tvAM tvSM quPAR ldp w = checkMemorize $ memorizeSeq ws tvAM tvSM quPAR ldp w 
-   
+memorizeSeqCheck ws tvAM tvSM quPAR ldp w = do
+   checkMemorize $ memorizeSeq ws tvAM tvSM quPAR ldp w 
 
+forMemory ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   , Memorize i a
+   ) => 
+   TVar (SeqMemorize i) ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO [PointAndR i]
+forMemory tvseqM w = do
+   seqM <- fmap (foldl (:) []) $ readTVarIO tvSM 
+   -- foldl1 (interleave) $ fmap return seqM
+ 
+memoryReact ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   , Memorize i a
+   ) => 
+   (DendritPatern i,PointAndR i) ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO [Int]
+memoryReact (dp,pr@(p,r)) w = do
+   let arr = coask w
+   a <- readArray arr p 
+   let seqP = a^.lPattern
+   let seqI = Seq.iterateN (Seq.length seqP) (+ 1) 0
+   fmap fold $ mapM (\(hs,i) -> do
+      if HSet.member dp hs 
+         then return [i]
+	 else return []
+      ) $ Seq.zip seqP seqI
+
+memoryReactDL ::  
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   , Memorize i a
+   ) => 
+   WaveStep ->
+   TVar (SeqMemorize i) ->
+   [[(DendritPatern i,(i,i))]] ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   LogicT IO (DendritPatern i, PointAndR i, [Int])
+memoryReact ws tvSM ldp w = (do
+   lpr <- lift $ forMemory tvSM
+   updateDendritLogic ws lpr ldp w) >>- (\ dppr@(dp,pr) -> do
+   li <- lift $ memoryReact dppr w
+   if P.nill i then empty
+      else return (dp,pr,li) 
+   )
+
+type RadiusPattern = Int
+
+type SeqPattern i = Seq (HashSet (DendritPatern i))
+
+genPatternRadius ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   , Memorize i a
+   ) => 
+   RadiusPattern ->
+   (DendritPatern i, PointAndR i, [Int]) ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO [SeqPattern i]
+genPatternRadius r (dp,pr@(p,ri),li) w = 
+   let arr = coask w
+   a <- readArray arr p 
+   let seqP = a^.lPattern
+   let seqI = Seq.iterateN (Seq.length seqP) (+ 1) 0
+   let seqPI = Seq.zip seqP seqI
+   fmap fold $ mapM (\i -> do 
+      let seqPF = Seq.filter (\ (_,j) -> j > (i - r) && j < (i + r)) seqPI
+      if Seq.null seqPF
+         then return []
+	 else return [fmap fst seqPF]
+      ) li
+
+genPatternString ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g 
+   , Memorize i a
+   ) => 
+   (DendritPatern i, PointAndR i, [Int]) ->
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO [SeqPattern i]
+genPatternString (dp,pr@(p,ri),li) w = do 
+   let arr = coask w
+   a <- readArray arr p 
+   let seqP = a^.lPattern
+   let seqI = Seq.iterateN (Seq.length seqP) (+ 1) 0
+   let seqPI = Seq.zip seqP seqI
+   let ls = P.sort li 
+   mapM (\ (x,y) -> do
+      let seqPF = Seq.filter (\ (_,j) -> j > x && j < y) seqPI
+      if Seq.null seqPF
+         then return []
+	 else return [fmap fst seqPF] 
+      ) $ f ls
+   where
+      f (x:y:xs) = (x,y) : (f (y:xs))
+      f _ = []
