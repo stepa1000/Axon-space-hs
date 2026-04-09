@@ -43,4 +43,20 @@ type PointAndR i = ((i,i),i)
 
 type WaveStep = Float 
 
+distanceSeq :: Eq a => Seq a -> Seq a -> Float
+distanceSeq slm1 slm2 = d / ml
+   where
+      ml = realToFrac $ max (Seq.length slm1) (Seq.length slm2) 
+      d = getSum $ fold $ seq.zipWith (\x y -> if x == y then Sum 1 else Sum 0) slm1 slm2
+
+type GeneralRadius = Float
+
+generalizationPattern :: GeneralRadius -> HashSet (Seq a) -> (Seq a,HashSet (Seq a), HashSet (Seq a))
+generalizationPattern gr hsslm = (gslm,shsseqLM,zhsslm)
+   where
+      (shsseqLM, zhsslm) = HSet.partition (\slm-> (distanceSeq slm gslm) > gr ) hsslm
+      gslm = foldl1 (\ (d1,slm1) (d2,slm2) -> if d1 > d2 then (d1,slm1) else (d2,slm2)) ldslm
+      ldslm = fmap (\slm1-> let
+         ad = foldl1 (+) $ fmap (\slm2 -> distanceSeqLM slm1 slm2) hsslm
+	 in (ad / (realToFrac $ Seq.length hsslm), slm1)
 

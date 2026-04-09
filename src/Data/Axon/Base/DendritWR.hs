@@ -182,13 +182,13 @@ generationPattern pr slm = hsslm
 	 in fold $ fmap (\x->[x]) $ Map.filterKeys (\nk-> nk > midK) mfre
 	 ) mmxaFre
 -- end frequncy generalization for reception
-distanceSeq :: Eq a => Seq a -> Seq a -> Float
+{-distanceSeq :: Eq a => Seq a -> Seq a -> Float
 distanceSeq slm1 slm2 = d / ml
    where
       ml = realToFrac $ max (Seq.length slm1) (Seq.length slm2) 
       d = getSum $ fold $ seq.zipWith (\x y -> if x == y then Sum 1 else Sum 0) slm1 slm2
-
-type GeneralRadius = Float
+-}
+{-type GeneralRadius = Float
 
 generalizationPattern :: GeneralRadius -> HashSet (Seq a) -> (Seq a,HashSet (Seq a), HashSet (Seq a))
 generalizationPattern gr hsslm = (gslm,shsseqLM,zhsslm)
@@ -199,7 +199,7 @@ generalizationPattern gr hsslm = (gslm,shsseqLM,zhsslm)
          ad = foldl1 (+) $ fmap (\slm2 -> distanceSeqLM slm1 slm2) hsslm
 	 in (ad / (realToFrac $ Seq.length hsslm), slm1)
 	 ) $ HSet.toList hsslm
-
+-}
 -- Pattern for pattern exist for reception, but not for liniar memorym because linear memory is uneq patern for eny reception
 --
 -- type SeqR i != SeqLM i
