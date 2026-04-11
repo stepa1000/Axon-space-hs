@@ -55,8 +55,8 @@ generalizationPattern :: GeneralRadius -> HashSet (Seq a) -> (Seq a,HashSet (Seq
 generalizationPattern gr hsslm = (gslm,shsseqLM,zhsslm)
    where
       (shsseqLM, zhsslm) = HSet.partition (\slm-> (distanceSeq slm gslm) > gr ) hsslm
-      gslm = foldl1 (\ (d1,slm1) (d2,slm2) -> if d1 > d2 then (d1,slm1) else (d2,slm2)) ldslm
+      (_,gslm) = foldl1 (\ (d1,slm1) (d2,slm2) -> if d1 > d2 then (d1,slm1) else (d2,slm2)) ldslm
       ldslm = fmap (\slm1-> let
-         ad = foldl1 (+) $ fmap (\slm2 -> distanceSeqLM slm1 slm2) hsslm
-	 in (ad / (realToFrac $ Seq.length hsslm), slm1)
+         ad = foldl1 (+) $ fmap (\slm2 -> distanceSeq slm1 slm2) hsslm
+	 in (ad / (realToFrac $ Seq.length hsslm), slm1)) hsslm
 

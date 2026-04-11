@@ -30,7 +30,7 @@
           hPkgs.hlint # Haskell codestyle checker
           hPkgs.hoogle # Lookup Haskell documentation
           hPkgs.haskell-language-server # LSP server for editor
-	  oldPkg.haskellPackages.haskell-debugger
+	  #oldPkg.haskellPackages.haskell-debugger
           hPkgs.implicit-hie # auto generate LSP hie.yaml file from cabal
           # hPkgs.retrie # Haskell refactoring tool
           # hPkgs.cabal-install
