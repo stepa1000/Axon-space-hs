@@ -2,10 +2,17 @@
   description = "my project description";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.flake-utils.url = "github:numtide/flake-utils";
+  inputs.nixpkgs-old.url = "github:nixos/nixpkgs/nixos-25.11";
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, nixpkgs-old }:
     flake-utils.lib.eachDefaultSystem (system:
       let
+         
+	#oldPkg = import (builtins.fetchTarball {
+        #   url = "https://nixos.org/channels/nixos-25.11";
+        #   }) {};
+        oldPkg = nixpkgs-old.legacyPackages.${system}; 
+
         pkgs = nixpkgs.legacyPackages.${system};
 
         hPkgs =
@@ -17,15 +24,19 @@
 
         myDevTools = [
           hPkgs.ghc # GHC compiler in the desired version (will be available on PATH)
+	  hPkgs.ghc-internal
           hPkgs.ghcid # Continuous terminal Haskell compile checker
           hPkgs.ormolu # Haskell formatter
-          # hPkgs.hlint # Haskell codestyle checker
+          hPkgs.hlint # Haskell codestyle checker
           hPkgs.hoogle # Lookup Haskell documentation
           hPkgs.haskell-language-server # LSP server for editor
+	  oldPkg.haskellPackages.haskell-debugger
           hPkgs.implicit-hie # auto generate LSP hie.yaml file from cabal
           # hPkgs.retrie # Haskell refactoring tool
           # hPkgs.cabal-install
-          hPkgs.stack # -wrapped
+	  hPkgs.implicit-hie
+          hPkgs.stack
+	  hPkgs.cabal-install
           pkgs.zlib # External C library needed by some Haskell packages
           hPkgs.OpenGL
           pkgs.freeglut
@@ -54,21 +65,24 @@
         # - no-nix: We don't want Stack's way of integrating Nix.
         # --system-ghc    # Use the existing GHC on PATH (will come from this Nix file)
         # --no-install-ghc  # Don't try to install GHC if no matching GHC found on PATH
-        #stack-wrapped = pkgs.symlinkJoin {
-        #  name = "stack"; # will be available as the usual `stack` in terminal
-        #  paths = [ pkgs.stack ];
-        #  buildInputs = [ pkgs.makeWrapper ];
-        #  postBuild = ''
-        #    wrapProgram $out/bin/stack \
-        #      --add-flags "\
-	#        --nix \
-        #        --system-ghc \
-        #        --no-install-ghc \
-        #      "
-        #  '';
-        #};
+        
+        
+        stack-wrapped = pkgs.symlinkJoin {
+          name = "stack"; # will be available as the usual `stack` in terminal
+          paths = [ pkgs.stack ];
+          buildInputs = [ pkgs.makeWrapper ];
+          postBuild = ''
+            wrapProgram $out/bin/stack \
+              --add-flags "\
+                --no-nix \
+                --system-ghc \
+                --no-install-ghc \
+              "
+          '';
+        };
       in {
-        devShells.default = pkgs.mkShell {
+        devShells.default = pkgs.haskellPackages.shellFor {
+	  packages = p: [ ];
           buildInputs = myDevTools;
 
           # Make external Nix c libraries like zlib known to GHC, like

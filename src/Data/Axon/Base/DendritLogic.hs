@@ -490,9 +490,9 @@ generalizationMemoryPattern ::
       (AdjArrayR (i,i) a)
       w
       b ->
-   LogicT IO (HashSet (Seq [DendritPatern i])) 
+   LogicT IO (PointAndR i) -- (HashSet (Seq [DendritPatern i])) 
 generalizationMemoryPattern ws pr gr hssdp w = (do
-   let (seqG,inG,outG) = generalizationPattern gr hssdp
+    -- let (seqG,inG,outG) = generalizationPattern gr hssdp
    updateDendritLogicSeq ws pr ((fmap . fmap) (\x->[x]) seqG) w
    ) >>- (\ seqdppr -> do
    let lSeqdppr = f seqdppr
