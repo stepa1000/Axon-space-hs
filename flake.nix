@@ -16,7 +16,7 @@
         pkgs = nixpkgs.legacyPackages.${system};
 
         hPkgs =
-          pkgs.haskell.packages."ghc910"; # need to match Stackage LTS version
+          pkgs.haskell.packages."ghc912"; # need to match Stackage LTS version
                                            # from stack.yaml snapshot
         # hPOld = pkgs.haskell.packages."ghc98";
 

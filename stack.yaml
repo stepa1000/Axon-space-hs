@@ -36,8 +36,8 @@ snapshot: lts-24.36
 # rebuild-ghc-options: true
 
 #nix: # nix corupted package
-#  enable: true
-#  packages: [freeglut]
+enable: true
+packages: [freeglut]
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
