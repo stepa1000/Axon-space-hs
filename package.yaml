@@ -19,6 +19,7 @@ extra-source-files:
 # common to point users to the README.md file.
 description:         Please see the README on GitHub at <https://github.com/githubuser/TreeHash#readme>
 
+
 dependencies:
 - base >= 4.19 && < 5
 - adjunction-combinators
@@ -44,6 +45,8 @@ dependencies:
 - array
 - lens
 - async
+- uuid
+- logict
   # - template-haskell
 
 ghc-options:

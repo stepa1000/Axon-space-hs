@@ -36,8 +36,10 @@ snapshot: lts-24.36
 # rebuild-ghc-options: true
 
 #nix: # nix corupted package
-enable: true
-packages: [freeglut]
+enable: false
+packages:  
+  freeglut
+  zlib
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -50,6 +52,7 @@ packages: [freeglut]
 #   - wai
 packages:
 - .
+
 # Dependency packages to be pulled from upstream that are not in the resolver.
 # These entries can reference officially published versions as well as
 # forks / in-progress versions pinned to a git hash. For example:
@@ -140,7 +143,6 @@ extra-deps:
 - uuid-types-1.0.6@sha256:5ac2b681a8d7676f6a51ac1b113bfdcf18dd7fdbb313034850ed6493eef96da0,2619
 - vector-stream-0.1.0.1@sha256:483be6df13c72169a917640589666f9fece7bea9fa13fcd41d052dab37ea289e,1642
 - witherable-0.5@sha256:a5600431df5d297f098c322c7fbc2ece804e44ade0bb2022a838de24604d6275,2355
-- zlib-0.7.1.1@sha256:cf2f8f91b10b635bdaa2c3010f40a5562a06ede24b92d819758e7f1b7d04f9f2,5206
 - GLURaw-2.0.0.5@sha256:eaa04b8afa8159d50558a30074c1ee8ae8fce96b0261a886e170025453157bae,2408
 - ObjectName-1.1.0.2@sha256:ede9e59944db8e67ea0301b41b60b410cb83bc57eddaf13b13f00c386c7cb94f,1247
 - OpenGLRaw-3.3.4.1@sha256:01b745fbd269fc96d982c3c915c5559793457ff02f9f6cce3ee259aed97378f1,26636
@@ -185,8 +187,10 @@ extra-deps:
 # arch: x86_64
 #
 # Extra directories used by Stack for building
-# extra-include-dirs: [/path/to/dir]
-# extra-lib-dirs: [/path/to/dir]
+#extra-include-dirs:
+ 
+
+#extra-lib-dirs: # [/path/to/dir]
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor

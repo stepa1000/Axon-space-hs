@@ -7,7 +7,7 @@
 
 module Data.Axon.Base.Axon where
 
-imprt Prelude as P
+import Prelude as P
 
 import Control.Monad.STM
 import Control.Concurrent.STM.TVar
@@ -20,6 +20,7 @@ import Data.Ix
 import Data.Functor.Adjunction
 import Control.Comonad
 import Control.Comonad.Env
+import Control.Monad
 import Control.Monad.Reader
 import Control.Comonad.Trans.Adjoint as W
 import Data.Array.MArray
@@ -27,15 +28,19 @@ import Debug.Trace
 import Control.Lens
 import System.Random
 import Data.Map as Map
-imoprt Data.HashMap.Lazy as HMap
+import Data.HashMap.Lazy as HMap
 import Data.Set as Set
 import Data.HashSet as HSet
 import Control.Concurrent.Async
 import Data.Traversable
-import Data.Foldable
+import Data.Foldable as Fold
 import Data.Proxy
 import Data.UUID
 import Data.Sequence as Seq
+import Data.Monoid
+import Data.Semigroup
+
+import Data.Axon.Base.Types
 
 -- Array
 
@@ -185,8 +190,23 @@ type CxtAxon i w a g =
   , Ord i
   , Show i
   , Show a
+  , Integral i
   )
 
+type CxtAxonNoG i w a = 
+  ( Comonad w
+  , Ix i
+  , HasMapVarT (i,i) a
+  , HasNeiron a
+  , Random i
+  -- , RandomGen g
+  , Real i
+  , Num i
+  , Ord i
+  , Show i
+  , Show a
+  , Integral i
+  )
 type NeironPoint i = (i,i)
 
 lineAxon1 ::
@@ -313,8 +333,8 @@ initAxogenesPoint tvg p@(x :: i,y) (minca,ca) w = do
         else do
 	  ae <- readArray arr p
 	  let mapA = ae^.(mapVarTBool @(i,i))
-	  let lk = keys mapA
-	  let ll = length lk
+	  let lk = Map.keys mapA
+	  let ll = P.length lk
 	  if ll > 1 then return () 
 	    else do 
 	      ril0 <- randomRSTM tvg (1,ll)
@@ -324,7 +344,7 @@ initAxogenesPoint tvg p@(x :: i,y) (minca,ca) w = do
 		writeArray arr p 
 		   ( set 
 		        (mapVarTBool @(i,i)) 
-			( adjust 
+			( Map.adjust 
 			     (\(tvb,seti)-> (tvb, Set.insert (lk !! ril1) seti) ) -- Maybe all order, nit ine side
 			     (lk !! ril0) 
 			     mapA) 
@@ -349,10 +369,12 @@ allAxogenesPoint tvg ca w = do
     ia <- atomically $ initAxogenesPoint tvg i ca w
     return (i,ia)
     ) allN
+  return ()
 
 updateAxogenesPoint ::
   ( CxtAxon i w a g
   ) =>
+  Proxy g ->
   (i,i) ->
   W.AdjointT
     (AdjArrayL (i,i) a)
@@ -360,16 +382,16 @@ updateAxogenesPoint ::
     w
     b -> 
   STM ()
-updateAxogenesPoint (p :: (i,i)) w = do
+updateAxogenesPoint pg (p :: (i,i)) w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr
   if not $ p >= xpi && p <= ypi then error "updateAxogenesPoint: index out of bounds"
     else do
       ae <- readArray arr p
       let mapA = ae^.(mapVarTBool @(i,i))
-      _ <- traverseWithKey (\ pk@(xk,yk) (tvbool, sp) -> do
+      _ <- Map.traverseWithKey (\ pk@(xk,yk) (tvbool, sp) -> do
          boolAxon <- readTVar tvbool
-         setBool <- foldlM (\ () pset -> do -- pset
+         setBool <- foldlM (\ bn pset -> do -- pset
 	    -- boolAxon <- readTVar tvbool
 	    let mtvbool2sp2 = Map.lookup pset mapA
 	    bool2 <- fmap (maybe False id) $ mapM (\ (tvbool2,sp2) -> do
@@ -380,10 +402,10 @@ updateAxogenesPoint (p :: (i,i)) w = do
 		    return bool2
 		 else return bool2
 	      ) mtvbool2sp2
-	    return bool2 -- (snd mtvbool2sp2)
+	    return $ bool2 : bn -- (snd mtvbool2sp2)
          -- return undefined
-	    ) () sp
-	 let reBool = foldl || False setBool
+	    ) [] sp
+	 let reBool = Fold.foldl (||) False setBool
 	 writeTVar tvbool reBool
 	) mapA
       return ()
@@ -410,6 +432,7 @@ clearNeironPoint p w = do
 clearAxoginesPoint ::
   ( CxtAxon i w a g
   ) =>
+  Proxy g ->
   (i,i) ->
   W.AdjointT
     (AdjArrayL (i,i) a)
@@ -417,14 +440,14 @@ clearAxoginesPoint ::
     w
     b ->
   STM ()
-clearAxoginesPoint (p :: (i,i)) w = do
+clearAxoginesPoint pg (p :: (i,i)) w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr
   if not $ p >= xpi && p <= ypi then error "updateAxogenesPoint: index out of bounds"
     else do
       ae <- readArray arr p
       let mapA = ae^.(mapVarTBool @(i,i))
-      _ <- traverseWithKey (\ pk@(xk,yk) (tvbool, sp) -> do
+      _ <- Map.traverseWithKey (\ pk@(xk,yk) (tvbool, sp) -> do
         writeTVar tvbool False
 	) mapA
       return ()
@@ -518,7 +541,7 @@ redredin2Box ::
   STM ()
 redredin2Box p w = do
   let arr = coask w
-  writeArray arr p (Color red $ cube)
+  writeArray arr p (Color red $ Polygon [(0,0),(1,0),(1,1),(0,1),(0,0)])
 
 -- instance HasMapVarT 
 
@@ -538,6 +561,8 @@ updateIn2BoxRedPic r1 r2 p w = do
 updateIn2Radius :: 
   ( Comonad w-- CxtAxon i w a g
   , Ix i
+  , Num i
+  , Integral i
   ) =>
   Float -> -- ???? Int
   Float -> -- ????? Int
@@ -570,7 +595,9 @@ updateIn2Radius r1 r2 p0@(x0,y0) f w = do
 updateIn2RUpAxogenesPoint :: 
   ( Comonad w-- CxtAxon i w a g
   , Ix i
+  , CxtAxon i w a g
   ) =>
+  Proxy g ->
   Float -> -- ???? Int
   Float -> -- ????? Int
   (i,i) ->
@@ -580,17 +607,32 @@ updateIn2RUpAxogenesPoint ::
     w
     b ->
   IO ()
-updateIn2RUpAxogenesPoint r1 r2 p0 w = 
-   updateIn2Radius r1 r2 p0 updateAxogenesPoint w
+updateIn2RUpAxogenesPoint pg r1 r2 p0 w = 
+   updateIn2Radius r1 r2 p0 (updateAxogenesPoint pg) w
 
-
-updateIn2RUpClearAxoginesPoint r1 r2 p0 w = 
-   updateIn2Radius r1 r2 p0 clearAxoginesPoint w
+updateIn2RUpClearAxoginesPoint ::  
+  ( Comonad w-- CxtAxon i w a g
+  , Ix i
+  , CxtAxon i w a g
+  ) =>
+  Proxy g ->
+  Float -> -- ???? Int
+  Float -> -- ????? Int
+  (i,i) ->
+  W.AdjointT 
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b ->
+  IO ()
+updateIn2RUpClearAxoginesPoint pg r1 r2 p0 w = 
+   updateIn2Radius r1 r2 p0 (clearAxoginesPoint pg) w
 
 waveInterval ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
+   , Integral i 
    ) => 
    Float ->
    (i,i) ->
@@ -612,17 +654,20 @@ waveInterval ::
    IO ()
 waveInterval rA p0 f w = do
    let arr = coask w
-   ppi@(xpi,ypi) <- getBounds arr 
-   let arrR = sqrt ((fromIntegral xpi) ^ 2 + (fromIntegral ypi) ^ 2) 
+   ppi@(xpi@(x1,y1),ypi@(x2,y2)) <- getBounds arr 
+   let arrR = sqrt ((fromIntegral $ x2 - x1) ^ 2 + (fromIntegral $ y2 - y1) ^ 2) 
    let l1 = [0,rA .. arrR]
    let l2 = [rA, rA * 2 .. arrR]
-   mapM (\(x,y) -> f x y p0 w) (zip l1 l2) 
+   mapM (\(x,y) -> f x y p0 w) (P.zip l1 l2) 
+   return ()
 
 updateDedritSpace :: -- GOOD abstract the
   ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
+   , CxtAxon i w a g
    ) => 
+   Proxy g ->
    Float ->
    [(i,i)] ->
    ( W.AdjointT 
@@ -638,16 +683,16 @@ updateDedritSpace :: -- GOOD abstract the
       w
       b ->
    IO c
-updateDedritSpace s li f w = do
+updateDedritSpace pg s li f w = do
   forConcurrently_ li (\i-> do
-    waveInterval s i updateIn2RUpAxogenesPoint w 
+    waveInterval s i (updateIn2RUpAxogenesPoint pg) w 
     )
   -- waveInterval s i updateIn2RUpAxogenesPoint w
   c <- f w
-  waveInterval s (head li) updateIn2RUpClearAxoginesPoint w -- all array to false maybe ?????????!!!!!!!!!!!
+  waveInterval s (head li) (updateIn2RUpClearAxoginesPoint pg) w -- all array to false maybe ?????????!!!!!!!!!!!
   return c
    
-upIn2RUpAxoginesPWave rA p0 w = waveInterval rA p0 updateIn2RUpAxogenesPoint 
+upIn2RUpAxoginesPWave pg rA p0 w = waveInterval rA p0 (updateIn2RUpAxogenesPoint pg)
 
 type DendritPatern i = Set (i,i)
 
@@ -669,20 +714,20 @@ generateDendritPatern ::
       w
       b ->
    STM (DendritPatern i)
-generateDendritPatern g p0@(px,py) r w k = do
+generateDendritPatern g p0@(px,py) r k w = do
    let arr = coask w
    ppi@(xpi,ypi) <- getBounds arr
-   if not $ and [(px - r, py - r) >= xi, (px + r, py + r) <= yi] 
+   if not $ and [(px - r, py - r) >= xpi, (px + r, py + r) <= ypi] 
       then error "updateAxogenesPoint: index out of bounds" 
       else do
          let pxA = px - r
 	 let pyA = py - r
 	 let pxB = px + r
 	 let pyB = py + r
-	 fmap fold $ mapM (\i-> do
+	 fmap Fold.fold $ mapM (\i-> do
             p <- randomRSTM g ((pxA,pyA),(pxB,pyB))
             return $ Set.singleton p
-	    ) (0..k)
+	    ) [0,1 .. k ]
 
 generateDendritPaternIO ::  
    ( Comonad w-- CxtAxon i w a g
@@ -692,7 +737,6 @@ generateDendritPaternIO ::
    , Random i
    , CxtAxon i w a StdGen
    ) => 
-   TVar StdGen ->
    (i,i) ->
    i ->
    Int -> 
@@ -701,19 +745,18 @@ generateDendritPaternIO ::
       (AdjArrayR (i,i) a)
       w
       b ->
-   STM (DendritPatern i)
+   IO (DendritPatern i)
 generateDendritPaternIO p r k w = do
    std <- getStdGen
    tvstd <- newTVarIO std
-   atomicaly $ generateDendritPatern tvstd p r k w
+   atomically $ generateDendritPatern tvstd p r k w
 	
 writeDendritPatern :: 
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , RandomGen g
    , Random i
-   , CxtAxon i w a g
+   , CxtAxonNoG i w a
    ) => 
    DendritPatern i ->
    W.AdjointT 
@@ -725,19 +768,19 @@ writeDendritPatern ::
 writeDendritPatern dp w = do
    let arr = coask w
    ppi@(xpi,ypi) <- getBounds arr
-   mapM (\ i -> 
+   mapM (\ i -> do
       a <- readArray arr i 
-      tvBool <- a^.neiron
-      writeTVar tvBool true  
-      ) dp
+      let tvBool = a^.neiron
+      writeTVar tvBool True  
+      ) $ Set.toList dp
+   return ()
    
 readDendritPatern :: 
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , RandomGen g
    , Random i
-   , CxtAxon i w a g
+   , CxtAxonNoG i w a
    ) => 
    -- DendritPatern i ->
    (i,i) ->
@@ -755,16 +798,16 @@ readDendritPatern (x,y) r w = do
       if inRange ppi i 
          then do
             a <- readArray arr i 
-            tvBool <- a^.neiron
-            b <- readTVar tvBool true
+            let tvBool = a^.neiron
+            b <- readTVar tvBool -- True
             return $ bn <> (Set.singleton i)
 	 else return $ Set.empty
-      ) Set.empty (range (x-r,y-r) (x+r,y+r))
+      ) Set.empty (range ((x-r,y-r), (x+r,y+r)) )
 
-midleDP :: Num i => DendritPatern i -> (i,i)
-midleDP dp = f $ fold $ map (\(x,y)-> (Max x,Min x, Max y, Min y)) dp
+midleDP :: (Num i, Ord i, Integral i, Bounded i) => DendritPatern i -> (i,i)
+midleDP dp = f $ Fold.fold $ fmap (\(x,y)-> (Max x,Min x, Max y, Min y)) $ Set.toList dp
    where
-      f (maxX,minX,maxY,MinY) = ((maxX - minX / (realToFrac 2)) + minX ,(maxY - minY / (realToFrac 2)) + minY )
+      f (Max maxX,Min minX,Max maxY,Min minY) = ((div (maxX - minX) (fromIntegral 2)) + minX ,(div (maxY - minY) (fromIntegral 2)) + minY )
 
 updateDendritList :: 
    ( Comonad w-- CxtAxon i w a g
@@ -772,6 +815,7 @@ updateDendritList ::
    , Num i
    , CxtAxon i w a g 
    ) => 
+   Proxy g ->
    WaveStep ->
    [PointAndR i] ->
    [[(DendritPatern i,(i,i))]] ->
@@ -781,23 +825,26 @@ updateDendritList ::
       w
       b ->
    IO [(DendritPatern i, PointAndR i)] -- (HashSet (DendritPatern i), PointAndR i)
-updateDendritList ws lpr ldp w = do
-   lift $ mapConcurrently (\dp-> atomicaly $ writeDendritPatern dp w) $ fmap fst ldp
-   ldp <- updateDedritSpace ws (fmap snd ldp) $ \ wn -> do
-      mapM (\lpr -> do
+updateDendritList pg ws lpr lldp w = do
+   ldpn <- mapM (\ldp -> do
+      mapConcurrently (\dp-> atomically $ writeDendritPatern dp w) $ fmap fst ldp
+      updateDedritSpace pg ws (fmap snd ldp) (\ wn -> do
          mapConcurrently (\(p,r)-> do
-            dpn <- atomicaly $ readDendritPatern p r
-            return (HSet.singletone dpn,(p,r))
+            dpn <- atomically $ readDendritPatern p r w
+            return (dpn,(p,r))
 	    ) lpr 
-         ) llpr
-   return ldp
+	 ) w
+      ) lldp
+   return $ join ldpn -- ?????????
 
 updateDendritListAnyDP :: 
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
    , CxtAxon i w a g 
+   , Bounded i
    ) => 
+   Proxy g ->
    WaveStep ->
    [PointAndR i] ->
    [[DendritPatern i]] ->
@@ -807,10 +854,10 @@ updateDendritListAnyDP ::
       w
       b ->
    IO [(DendritPatern i, PointAndR i)] -- (HashSet (DendritPatern i), PointAndR i)
-updateDendritListAnyDP ws lpr lldp w = do
-   updateDendritList ws lpr ( (fmap . fmap) (\x-> (x, midleDP x)) lldp) w
+updateDendritListAnyDP pg ws lpr lldp w = do
+   updateDendritList pg ws lpr ( (fmap . fmap) (\x-> (x, midleDP x)) lldp) w
 
-calss InitWM w m a where
+class InitWM w m a where
    initWM :: w () -> m a
 
 type InitWIODPMK1 g w i a = 
@@ -821,9 +868,11 @@ type InitWIODPMK1 g w i a =
    , RandomGen g
    , Random i
    , CxtAxon i w a g 
+   , HasMapVarT i a
+   , Bounded i
    )
 
-data AxonDendritSetting a i = AxonDendritSetting 
+data AxonDendritSetting g a i = AxonDendritSetting 
    { lowerIndex :: (i,i)
    , uperIndex :: (i,i)
    , proxyG :: Proxy g
@@ -840,45 +889,45 @@ initAxonDendritSetting li ui pg lb lp aca ws tg = do
    return $ AxonDendritSetting li ui pg lb lp tvl aca ws tg
 
 initNeironWIO :: InitWIODPMK1 g w i a => 
-   AxonDendritSetting a i -> 
+   AxonDendritSetting g a i -> 
    w () -> 
    IO ( W.AdjointT
            (AdjArrayL (i,i) a)
            (AdjArrayR (i,i) a)
            w
-        b)
+        ())
 initNeironWIO axdes w = do
    a <- initWM w
    tarr <- initNeiron a (lowerIndex axdes) (uperIndex axdes) 
    return $ adjEnv tarr w
 
 initAxonForNeironBoxWIO :: InitWIODPMK1 g w i a => 
-   AxonDendritSetting a i -> 
+   AxonDendritSetting g a i -> 
    W.AdjointT
       (AdjArrayL (i,i) a)
       (AdjArrayR (i,i) a)
       w
-      b
+      b ->
    IO ()
 initAxonForNeironBoxWIO axdes w = do
    lnpi <- initAxonForNeironBox (proxyG axdes) (lengthBox axdes) w
-   atomicaly $ modifyTVar (listLine axdes) (lnpi ++)
+   atomically $ modifyTVar (listLine axdes) (lnpi ++)
 
 allAxogenesPointWIO :: InitWIODPMK1 StdGen w i a => 
-   AxonDendritSetting a i -> 
+   AxonDendritSetting StdGen a i -> 
    W.AdjointT
       (AdjArrayL (i,i) a)
       (AdjArrayR (i,i) a)
       w
-      b
+      b ->
    IO ()
 allAxogenesPointWIO axdes w = do
    std <- initStdGen
-   tvstd newTVarIO std
-   allAxogenesPoint tvstd (adsChanceAxon axdes)
+   tvstd <- newTVarIO std
+   allAxogenesPoint tvstd (adsChanceAxon axdes) w
 
 initializationADendrit :: InitWIODPMK1 StdGen w i a => 
-   AxonDendritSetting a i ->
+   AxonDendritSetting StdGen a i ->
    w () ->
    IO ( W.AdjointT
            (AdjArrayL (i,i) a)
@@ -892,7 +941,7 @@ initializationADendrit axdes w = do
    return adjArr
 
 updateADendrit :: InitWIODPMK1 StdGen w i a => 
-   AxonDendritSetting a i -> 
+   AxonDendritSetting StdGen a i -> 
    [PointAndR i] ->
    [[DendritPatern i]] ->
    W.AdjointT
@@ -902,26 +951,26 @@ updateADendrit :: InitWIODPMK1 StdGen w i a =>
            () ->
    IO [(DendritPatern i, PointAndR i)]
 updateADendrit axdes lpr ldp w = do
-   updateDendritListAnyDP (adsWaveStep axdes) lpr ldp w
+   updateDendritListAnyDP (Proxy @StdGen) (adsWaveStep axdes) lpr ldp w
 
-distancePatern :: DendritPatern i -> DendritPatern i -> Int
+distancePatern :: Ord i => DendritPatern i -> DendritPatern i -> Int
 distancePatern dp1 dp2 = x
    where
-      (Sum x) = foldMap (\p-> if member p dp2 then Sum 1 else Sum 0) dp1
+      (Sum x) = foldMap (\p-> if Set.member p dp2 then Sum 1 else Sum 0) dp1
 
 pingPongDendrit :: InitWIODPMK1 StdGen w i a => 
-   AxonDendritSetting a i -> 
+   AxonDendritSetting StdGen a i -> 
    W.AdjointT
            (AdjArrayL (i,i) a)
            (AdjArrayR (i,i) a)
            w
            () ->
    IO (Bool, Float)
-pingPongDendrit axdes w = 
-   let v = lengthPattern axdes
+pingPongDendrit axdes w = do
+   let v = fromIntegral $ lengthPattern axdes
    let p1 = (\(x,y)->(x+v,y+v)) (lowerIndex axdes)
    let p2 = (\(x,y)->(x-v,y-v)) (uperIndex axdes)
-   dp1 <- generateDendritPaternIO p1 v (trayGeneration axdes) w
+   dp1 <- generateDendritPaternIO p1 (fromIntegral $ v) (trayGeneration axdes) w
    [(dp2,_)]<- updateADendrit axdes [(p2,v)] [[dp1]] w
    [(dp1N,_)]<- updateADendrit axdes [(p1,v)] [[dp2]] w
    return (dp1N == dp1, (realToFrac $ distancePatern dp1N dp1) / (realToFrac $ max (Set.size dp1N) (Set.size dp1)) )

@@ -13,10 +13,17 @@
         #   }) {};
         oldPkg = nixpkgs-old.legacyPackages.${system}; 
 
-        pkgs = nixpkgs.legacyPackages.${system};
+        pkgs = nixpkgs.legacyPackages.${system}; # import nixpkgs {
+	#  inherit system;
+	#  overlays = [
+	#    (final: prev: {
+	#      
+	#      })
+	#    ];
+	#  }; # nixpkgs.legacyPackages.${system};
 
         hPkgs =
-          pkgs.haskell.packages."ghc912"; # need to match Stackage LTS version
+          pkgs.haskell.packages."ghc910"; # need to match Stackage LTS version
                                            # from stack.yaml snapshot
         # hPOld = pkgs.haskell.packages."ghc98";
 
@@ -24,7 +31,7 @@
 
         myDevTools = [
           hPkgs.ghc # GHC compiler in the desired version (will be available on PATH)
-	  hPkgs.ghc-internal
+	  # hPkgs.ghc-internal
           hPkgs.ghcid # Continuous terminal Haskell compile checker
           hPkgs.ormolu # Haskell formatter
           hPkgs.hlint # Haskell codestyle checker
@@ -34,10 +41,10 @@
           hPkgs.implicit-hie # auto generate LSP hie.yaml file from cabal
           # hPkgs.retrie # Haskell refactoring tool
           # hPkgs.cabal-install
-	  hPkgs.implicit-hie
-          hPkgs.stack
-	  hPkgs.cabal-install
+          stack-wrapped
+	  # hPkgs.cabal-install
           pkgs.zlib # External C library needed by some Haskell packages
+	  hPkgs.zlib
           hPkgs.OpenGL
           pkgs.freeglut
           hPkgs.gl
@@ -46,19 +53,11 @@
           pkgs.libGL
           pkgs.libGLU
 	  pkgs.freeglut
-	  #pkgs.alex
-	  #hPOld.c2hs
-	  #hPOld.cpphs
-	  #hPOld.doctest
-	  #hPOld.ghcjs
-	  #hPOld.ghcjs-pkgs
-	  #hPOld.greencard
-	  #hPOld.happy
-	  #hPOld.hmake
-	  #hPOld.jhs
-	  #pkgs.pkg-config
-	  #pkgs.uhc
-        ];
+	  #pkgs.pkg-config-unwrapped
+          #hPkgs.pantry_0_11_2 
+	  #hPkgs.text_2_1_4
+
+	  ];
 
         # Wrap Stack to work with our Nix integration. We don't want to modify
         # stack.yaml so non-Nix users don't notice anything.
@@ -84,7 +83,6 @@
         devShells.default = pkgs.haskellPackages.shellFor {
 	  packages = p: [ ];
           buildInputs = myDevTools;
-
           # Make external Nix c libraries like zlib known to GHC, like
           # pkgs.haskell.lib.buildStackProject does
           # https://github.com/NixOS/nixpkgs/blob/d64780ea0e22b5f61cd6012a456869c702a72f20/pkgs/development/haskell-modules/generic-stack-builder.nix#L38

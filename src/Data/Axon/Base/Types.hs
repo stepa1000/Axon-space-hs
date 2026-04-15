@@ -7,7 +7,7 @@
 
 module Data.Axon.Base.Types where
 
-imprt Prelude as P
+import Prelude as P
 
 import Control.Monad.STM
 import Control.Concurrent.STM.TVar
@@ -27,17 +27,19 @@ import Debug.Trace
 import Control.Lens
 import System.Random
 import Data.Map as Map
-imoprt Data.HashMap.Lazy as HMap
+import Data.HashMap.Lazy as HMap
 import Data.Set as Set
 import Data.HashSet as HSet
 import Control.Concurrent.Async
 import Data.Traversable
-import Data.Foldable
+import Data.Foldable as Fold
 import Data.Proxy
 import Data.UUID
 import Data.Sequence as Seq
+import Data.Monoid
+import Data.Hashable
 
-import Data.Axon.Base.Axon
+-- import Data.Axon.Base.Axon
 
 type PointAndR i = ((i,i),i)
 
@@ -47,16 +49,18 @@ distanceSeq :: Eq a => Seq a -> Seq a -> Float
 distanceSeq slm1 slm2 = d / ml
    where
       ml = realToFrac $ max (Seq.length slm1) (Seq.length slm2) 
-      d = getSum $ fold $ seq.zipWith (\x y -> if x == y then Sum 1 else Sum 0) slm1 slm2
+      d = getSum $ Fold.fold $ Seq.zipWith (\x y -> if x == y then Sum 1 else Sum 0) slm1 slm2
 
 type GeneralRadius = Float
 
-generalizationPattern :: GeneralRadius -> HashSet (Seq a) -> (Seq a,HashSet (Seq a), HashSet (Seq a))
+generalizationPattern :: (Eq a, Hashable a) =>
+   GeneralRadius -> HashSet (Seq a) -> (Seq a,HashSet (Seq a), HashSet (Seq a))
 generalizationPattern gr hsslm = (gslm,shsseqLM,zhsslm)
    where
-      (shsseqLM, zhsslm) = HSet.partition (\slm-> (distanceSeq slm gslm) > gr ) hsslm
+      shsseqLM = HSet.filter (\slm-> (distanceSeq slm gslm) > gr ) hsslm
+      zhsslm = HSet.filter (\slm-> not $ (distanceSeq slm gslm) > gr ) hsslm 
       (_,gslm) = foldl1 (\ (d1,slm1) (d2,slm2) -> if d1 > d2 then (d1,slm1) else (d2,slm2)) ldslm
-      ldslm = fmap (\slm1-> let
-         ad = foldl1 (+) $ fmap (\slm2 -> distanceSeq slm1 slm2) hsslm
-	 in (ad / (realToFrac $ Seq.length hsslm), slm1)) hsslm
+      ldslm = HSet.map (\slm1-> let
+         ad = foldl1 (+) $ HSet.map (\slm2 -> distanceSeq slm1 slm2) hsslm
+	 in (ad / (realToFrac $ HSet.size hsslm), slm1)) hsslm
 

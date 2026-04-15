@@ -546,13 +546,6 @@ packages:
   original:
     hackage: witherable-0.5@sha256:a5600431df5d297f098c322c7fbc2ece804e44ade0bb2022a838de24604d6275,2355
 - completed:
-    hackage: zlib-0.7.1.1@sha256:cf2f8f91b10b635bdaa2c3010f40a5562a06ede24b92d819758e7f1b7d04f9f2,5206
-    pantry-tree:
-      sha256: 5390028137a6d119300847be08ebb0063bfd00cfca856675bb0f0d6887f06fda
-      size: 1519
-  original:
-    hackage: zlib-0.7.1.1@sha256:cf2f8f91b10b635bdaa2c3010f40a5562a06ede24b92d819758e7f1b7d04f9f2,5206
-- completed:
     hackage: GLURaw-2.0.0.5@sha256:eaa04b8afa8159d50558a30074c1ee8ae8fce96b0261a886e170025453157bae,2408
     pantry-tree:
       sha256: b30da946e93c73ffeb067f7c2d2b2ece9abd2222aae6375949b73bae03b64661
