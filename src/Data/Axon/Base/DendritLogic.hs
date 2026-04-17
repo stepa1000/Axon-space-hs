@@ -4,6 +4,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE  FunctionalDependencies #-}
 
 module Data.Axon.Base.DendritLogic where
 
@@ -43,6 +44,8 @@ import Data.Sequence as Seq
 import Control.Monad.Logic
 import Control.Applicative as Alt
 import Data.Monoid
+import Data.Maybe
+import Data.Hashable
 
 import Data.Axon.Base.Axon
 import Data.Axon.Base.Types
@@ -51,7 +54,7 @@ updateDendritLogic ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a
    ) => 
    WaveStep ->
    [PointAndR i] ->
@@ -62,31 +65,26 @@ updateDendritLogic ::
       w
       b ->
    LogicT IO (DendritPatern i, PointAndR i) -- (HashSet (DendritPatern i), PointAndR i)
-updateDendritLogic ws lpr ldp w = do
-   lift $ mapConcurrently (\dp-> atomically $ writeDendritPatern dp w) $ fmap fst ldp
-   ldp <- lift $ updateDedritSpace ws (fmap snd ldp) (\ wn -> do
-      mapConcurrently (\(p,r)-> do
-         dpn <- atomically $ readDendritPatern p r
-         return (HSet.singleton dpn,(p,r))
-         ) lpr 
-      ) w
-   f $ fmap (return . join) ldp
+updateDendritLogic ws lpr lldp w = do
+   ldp <- lift $ updateDendritList (Proxy @StdGen) ws lpr lldp w  
+   f $ fmap (return) ldp
    where
       f (x:xs) = x `interleave` (f xs)
       f (x:[]) = x
       f [] = Alt.empty
 
-class Memorize i a where
+class Memorize i a | a -> i where
    lPattern :: Lens' a (Seq (HashSet (DendritPatern i))) -- Linera !?!?!?!?!?!?!??!?!?!?
    lPatternMax :: Lens' a Int
-   lLenghtPattern :: Lens' a Int
+   lLengthPattern :: Lens' a Int
 
 memorizeRight ::  
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , Hashable i
    ) =>
    (DendritPatern i, PointAndR i) ->
    W.AdjointT 
@@ -98,17 +96,17 @@ memorizeRight ::
 memorizeRight dppr@(dp,(p,r)) w = do
    let arr = coask w
    a <- readArray arr p
-   let llp = a^.lLenghtPattern
+   let llp = a^.lLengthPattern
    let lpm = a^.lPatternMax
    if llp >= lpm 
       then return $ Left (p,r)
       else do
          let seqP = a^.lPattern
 	 let mhs = Seq.lookup (llp + 1) seqP
-	 maybes (do
-	    writeArray arr p $ set lPattern (Seq.update (HSet.singleton dp) seqP) a 
+	 maybe (do
+	    writeArray arr p $ set lPattern (Seq.update (llp + 1) (HSet.singleton dp) seqP) a 
 	    ) (\hs-> do
-            writeArray arr p $ set lPattern (Seq.update (HSet.insert dp hs) seqP) a
+            writeArray arr p $ set lPattern (Seq.update (llp + 1) (HSet.insert dp hs) seqP) a
 	    ) mhs
          return $ Right (p,r)
    
@@ -116,8 +114,9 @@ memorizeRightList ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , Hashable i
    ) =>
    [(DendritPatern i, PointAndR i)] ->
    W.AdjointT 
@@ -132,8 +131,9 @@ memorizeRightDL ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , Hashable i
    ) =>
    (DendritPatern i, PointAndR i) ->
    W.AdjointT 
@@ -155,8 +155,9 @@ memorizeSeq ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , Hashable i
    ) => 
    WaveStep ->
    TVar (ActiveMemorize i) ->
@@ -174,7 +175,7 @@ memorizeSeq ws tvAM tvSM quPAR ldp w = (do
       lam <- readTVarIO tvAM
       if P.null lam
          then do
-	    nam <- atomicaly $ readTQueue quPAR
+	    nam <- atomically $ readTQueue quPAR
 	    atomically $ writeTVar tvAM [nam]
 	    return [nam]
 	 else return lam
@@ -196,7 +197,7 @@ checkMemorize ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
    ) =>
    LogicT IO (Bool,(i,i)) ->
@@ -218,7 +219,7 @@ memoryNextSeq ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
    ) =>
    (i,i) ->
@@ -228,18 +229,19 @@ memoryNextSeq ::
       w
       b ->
    IO ()
-memoryNextSeq p w = do
+memoryNextSeq (p :: (i,i)) w = do
    let arr = coask w
    a <- readArray arr p
-   let llp = a^.lLenghtPattern
-   writeArray arr p $ set lLengthPattern (llp + 1) a
+   let llp = a^.lLengthPattern
+   writeArray arr p $ set (lLengthPattern @i) (llp + 1) a
 
 memorizeSeqCheck ::   
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , Hashable i
    ) => 
    WaveStep ->
    TVar (ActiveMemorize i) ->
@@ -253,13 +255,13 @@ memorizeSeqCheck ::
       b ->
    LogicT IO (Either String Int) -- (HashSet (DendritPatern i), PointAndR i)
 memorizeSeqCheck ws tvAM tvSM quPAR ldp w = do
-   checkMemorize $ memorizeSeq ws tvAM tvSM quPAR ldp w 
+   checkMemorize (memorizeSeq ws tvAM tvSM quPAR ldp w) w
 
 forMemory ::   
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
    ) => 
    TVar (SeqMemorize i) ->
@@ -270,15 +272,16 @@ forMemory ::
       b ->
    IO [PointAndR i]
 forMemory tvseqM w = do
-   fmap (Fold.foldl (:) []) $ readTVarIO tvseqM 
+   fmap (Fold.foldl (\ b a -> a : b) []) $ readTVarIO tvseqM 
    -- foldl1 (interleave) $ fmap return seqM
  
 memoryReact ::  
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , Hashable i
    ) => 
    (DendritPatern i,PointAndR i) ->
    W.AdjointT 
@@ -302,8 +305,9 @@ memoryReactDL ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , Hashable i
    ) => 
    WaveStep ->
    TVar (SeqMemorize i) ->
@@ -330,7 +334,7 @@ genPatternRadius ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
    ) => 
    RadiusPattern ->
@@ -351,14 +355,14 @@ genPatternRadius r (dp,pr@(p,ri),li) w = do
       let seqPF = Seq.filter (\ (_,j) -> j > (i - r) && j < (i + r)) seqPI
       if Seq.null seqPF
          then return []
-	 else return [(fmap . fmap) fst seqPF]
+	 else return [(fmap fst seqPF, pr)]
       ) li
 
 genPatternString ::   
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a
    , Memorize i a
    ) => 
    (DendritPatern i, PointAndR i, [Int]) ->
@@ -389,7 +393,7 @@ genAnyPatternsDL ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
    ) => 
    RadiusPattern ->
@@ -414,8 +418,10 @@ addMemoryPattern ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a
    , Memorize i a
+   , Hashable i
+   , MemoryPattern i a
    ) => 
    (SeqPattern i, PointAndR i) ->
    W.AdjointT 
@@ -434,8 +440,10 @@ reactMemoryPattern ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , Hashable i
+   , MemoryPattern i a
    ) => 
    (DendritPatern i, PointAndR i) ->
    W.AdjointT 
@@ -462,8 +470,10 @@ reactMemoryPatternSeq ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , Hashable i
+   , MemoryPattern i a
    ) => 
    Seq [(DendritPatern i, PointAndR i)] ->
    W.AdjointT 
@@ -478,7 +488,7 @@ reactMemoryPatternSeq seqDPPR w = do
    a <- readArray arr p 
    let hsSeqP = a^.lMemoryPattern 
    mapM (\ seqP -> do
-      let seqP2 = fmap Fold.fold $ (fmap . fmap) (HSet.singleton fst) seqDPPR
+      let seqP2 = fmap Fold.fold $ (fmap . fmap) (HSet.singleton . fst) seqDPPR
       return (seqP, distanceSeq seqP seqP2) 
       ) $ HSet.toList hsSeqP
 
@@ -486,8 +496,10 @@ reactMemoryPatternDL ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , Hashable i
+   , MemoryPattern i a
    ) => 
    WaveStep ->
    [PointAndR i] ->
@@ -506,15 +518,17 @@ reactMemoryPatternDL ws lp lldp w = (do
    )
 
 class GeneralPattern i a where
-   gPattern :: Lens' a (Maybe (Seq [DendritPatern i]))-- Prism' a (Seq [DendritPatern i])
+   gPattern :: Lens' a (Maybe (Seq (HashSet (DendritPatern i))))-- Prism' a (Seq [DendritPatern i])
    lPointIn :: Lens' a [PointAndR i]
 
 reactGeneralPatternSeq ::  
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , Hashable i
+   , GeneralPattern i a
    ) => 
    Seq [(DendritPatern i, PointAndR i)] ->
    W.AdjointT 
@@ -522,14 +536,14 @@ reactGeneralPatternSeq ::
       (AdjArrayR (i,i) a)
       w
       b ->
-   IO [(SeqPattern i, Float)]
+   IO (Maybe (SeqPattern i, Float))
 reactGeneralPatternSeq seqDPPR w = do
    let arr = coask w
    let (((_,(p,_)):_) :<| _) = seqDPPR
    a <- readArray arr p 
    let mSeqP = a^.gPattern 
    mapM (\ seqP -> do
-      let seqP2 = fmap Fold.fold $ (fmap . fmap) (HSet.singleton fst) seqDPPR
+      let seqP2 = fmap Fold.fold $ (fmap . fmap) (HSet.singleton . fst) seqDPPR
       return (seqP, distanceSeq seqP seqP2) 
       ) mSeqP
 
@@ -537,13 +551,17 @@ generalizationMemoryPatternG ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    , Memorize i a
+   , GeneralPattern i a
+   , MemoryPattern i a
+   , Bounded i
+   , Hashable i
    ) => 
    WaveStep ->
    [PointAndR i] -> 
    -- GeneralRadius ->
-   Seq [DendritPatern i] ->
+   Seq (HashSet (DendritPatern i)) ->
    -- HashSet (Seq [DendritPatern i]) ->
    W.AdjointT 
       (AdjArrayL (i,i) a)
@@ -553,22 +571,20 @@ generalizationMemoryPatternG ::
    LogicT IO (PointAndR i) -- (HashSet (Seq [DendritPatern i])) 
 generalizationMemoryPatternG ws pr hssdp w = (do
     -- let (seqG,inG,outG) = generalizationPattern gr hssdp
-   updateDendritLogicSeq ws pr ((fmap . fmap) (\x->[x]) hssdp) w
+   updateDendritLogicSeq ws pr (fmap (\x-> [fmap (\y-> (y,midleDP y)) $ HSet.toList x]) hssdp) w
    ) >>- (indexSort
    ) >>- (\ seqdppr -> do
-   (b,a,prN@(p,_)) <- chackSeqPattern seqdppr
+   let arr = coask w
+   (b,a,prN@(p,_),seqDP) <- chackSeqPattern seqdppr w
    if b then do
-         writeArray arr p $ set gPattern (Just seqDP) a 
+         lift $ writeArray arr p $ set gPattern (Just $ seqDP) a 
          return prN
       else Alt.empty
    )
 
 indexSort ::    
-   ( Comonad w-- CxtAxon i w a g
-   , Ix i
+   ( Ix i
    , Num i
-   , CxtAxon i w a g 
-   , Memorize i a
    ) =>
    (Seq [(DendritPatern i, PointAndR i)]) ->
    LogicT IO (Seq [(DendritPatern i, PointAndR i)])
@@ -578,24 +594,31 @@ indexSort = (\ seqdppr -> do
    )
    where
       f (ldppr :<| seq) = 
-         fmap (\x@(dp,(p,r))-> x :<| 
+         fmap (\x@(dp,(p,r))-> [x] :<| 
 	    (fmap 
 	       (P.filter (\(sp2,(p2,r2))-> p == p2)) 
 	       seq) 
 	    ) ldppr
-      f _ = Seq.Empty
+      f _ = [Seq.Empty]
 
    
 chackSeqPattern ::  
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a
    , Memorize i a
+   , MemoryPattern i a
+   , Hashable i
    ) =>
    (Seq [(DendritPatern i, PointAndR i)]) ->
-   LogicT IO (Bool,a,PointAndR i)
-chackSeqPattern = (\ seqdppr -> do
+   W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   LogicT IO (Bool,a,PointAndR i, Seq (HashSet (DendritPatern i)))
+chackSeqPattern = (\ seqdppr w -> do
    when ((Seq.length seqdppr) <= 0) Alt.empty
    let (((dp,(p,r)):_) :<| _) = seqdppr
    let seqDP = fmap Fold.fold $ (fmap . fmap) (HSet.singleton . fst) seqdppr
@@ -603,8 +626,8 @@ chackSeqPattern = (\ seqdppr -> do
       let arr = coask w
       a <- readArray arr p 
       let lseqP = a^.lMemoryPattern 
-      let b = or $ fmap (== seqDP) lseqP
-      return (b,a,(p,r))
+      let b = or $ HSet.toList $ HSet.map (== seqDP) lseqP
+      return (b,a,(p,r),seqDP)
    ) 
 
 
@@ -612,8 +635,12 @@ generalizationMemoryPatternInG ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a
    , Memorize i a
+   , GeneralPattern i a
+   , Bounded i
+   , MemoryPattern i a
+   , Hashable i
    ) => 
    WaveStep ->
    [PointAndR i] -> 
@@ -628,14 +655,16 @@ generalizationMemoryPatternInG ::
       b ->
    LogicT IO (PointAndR i) -- (HashSet (Seq [DendritPatern i])) 
 generalizationMemoryPatternInG ws pr prG@(pG,_) hssdp w = (do
-   mapM (\ sdp -> do
-      updateDendritLogicSeq ws pr ((fmap . fmap) (\x->[x]) sdp) w
-      ) hssdp 
-   ) >>- indexSort 
+   lx <- mapM (\ sdp -> do
+      updateDendritLogicSeq ws pr ((fmap . fmap) (\x->[(x, midleDP x)]) sdp) w
+      ) $ HSet.toList hssdp 
+   Fold.foldl (interleave) Alt.empty (fmap return lx)
+   ) >>- (indexSort)
    >>- (\ seqdppr -> do
-   (b,a,prN@(p,_)) <- chackSeqPattern seqdppr
+   (b,a,prN@(p,_),_) <- chackSeqPattern seqdppr w
    if b then do
-         writeArray arr pG $ over lPointIn (prN :) a 
+         let arr = coask w 
+         lift $ writeArray arr pG $ over lPointIn (prN :) a 
          return prN
       else Alt.empty
    )
@@ -644,8 +673,12 @@ generalizationMemoryPatternUpdate ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a
    , Memorize i a
+   , Hashable i
+   , GeneralPattern i a
+   , MemoryPattern i a
+   , Bounded i
    ) => 
    WaveStep ->
    [PointAndR i] -> 
@@ -660,17 +693,18 @@ generalizationMemoryPatternUpdate ::
    LogicT IO (PointAndR i)
 generalizationMemoryPatternUpdate ws pr gr hssdp w = do
    let (seqG,inG,outG) = generalizationPattern gr hssdp 
-   prG <- generalizationMemoryPatternG ws pr prG seqG w
-   prInG <- one $ many $ generalizationMemoryPatternInOutG ws pr prG inG w
+   prG <- generalizationMemoryPatternG ws pr (fmap (Fold.fold . fmap HSet.singleton) seqG) w
+   prInG <- once $ many $ generalizationMemoryPatternInG ws pr prG inG w
    if P.null prInG || P.null outG
       then return prG
-      else interleave (return prG) (generalizationMemoryPatternUpdate outG)
+      else interleave (return prG) (generalizationMemoryPatternUpdate ws pr gr outG w)
 
 updateDendritLogicSeq :: 
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a
+   , Integral i
    ) => 
    WaveStep ->
    [PointAndR i] ->
@@ -684,17 +718,18 @@ updateDendritLogicSeq ::
 updateDendritLogicSeq ws lpr sldp w = do
    foldlM (\ seqN lldp -> do
       ldp <- many $ updateDendritLogic ws lpr lldp w 
-      return $ seqN :>| ldp
+      return $ seqN :|> ldp
       ) Seq.empty sldp
 
-seqPatternToSeq :: SeqPattern i -> Seq [[(DendritPatern i,(i,i))]] 
+seqPatternToSeq :: (Integral i, Bounded i) => SeqPattern i -> Seq [[(DendritPatern i,(i,i))]] 
 seqPatternToSeq sp = fmap (fmap (\x-> [(x,midleDP x)]) . HSet.toList)sp
 
 updateDendritLogicSeqPattern :: 
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a
+   , Bounded i
    ) => 
    WaveStep ->
    [PointAndR i] ->
@@ -713,7 +748,7 @@ updateDendritLogicSeqGeneral ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
    , Num i
-   , CxtAxon i w a g 
+   , CxtAxonNoG i w a 
    ) => 
    WaveStep ->
    TVarGPointAndR i ->

@@ -2,7 +2,7 @@
   description = "my project description";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.flake-utils.url = "github:numtide/flake-utils";
-  inputs.nixpkgs-old.url = "github:nixos/nixpkgs/nixos-25.11";
+  # inputs.nixpkgs-old.url = "github:nixos/nixpkgs/nixos-25.11";
 
   outputs = { self, nixpkgs, flake-utils, nixpkgs-old }:
     flake-utils.lib.eachDefaultSystem (system:
@@ -11,7 +11,7 @@
 	#oldPkg = import (builtins.fetchTarball {
         #   url = "https://nixos.org/channels/nixos-25.11";
         #   }) {};
-        oldPkg = nixpkgs-old.legacyPackages.${system}; 
+        # oldPkg = nixpkgs-old.legacyPackages.${system}; 
 
         pkgs = nixpkgs.legacyPackages.${system}; # import nixpkgs {
 	#  inherit system;
@@ -80,8 +80,8 @@
           '';
         };
       in {
-        devShells.default = pkgs.haskellPackages.shellFor {
-	  packages = p: [ ];
+        devShells.default = pkgs.mkShell {
+	  # packages = p: [ ];
           buildInputs = myDevTools;
           # Make external Nix c libraries like zlib known to GHC, like
           # pkgs.haskell.lib.buildStackProject does

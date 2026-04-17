@@ -191,6 +191,7 @@ type CxtAxon i w a g =
   , Show i
   , Show a
   , Integral i
+  , CxtAxonNoG i w a
   )
 
 type CxtAxonNoG i w a = 
@@ -531,6 +532,8 @@ updateIn2Box r1' r2' p f w = do
       f i w
     )
 
+cube = Polygon [(0,0),(1,0),(1,1),(0,1),(0,0)] 
+
 redredin2Box :: 
   (Int, Int) ->
   W.AdjointT
@@ -557,6 +560,22 @@ updateIn2BoxRedPic ::
   IO ()
 updateIn2BoxRedPic r1 r2 p w = do
   updateIn2Box r1 r2 p redredin2Box w
+
+drowWPic :: 
+   W.AdjointT
+      (AdjArrayL (Int,Int) Picture)
+      (AdjArrayR (Int,Int) Picture)
+      Identity
+      () ->
+   IO Picture
+drowWPic w = do
+  let arr = coask w
+  ppi@(xpi,ypi) <- getBounds arr 
+  lp <- mapM (\ p@(x,y) -> do
+     pic <- readArray arr p 
+     return $ Translate (fromIntegral x) (fromIntegral y) pic
+     ) (range (xpi,ypi))
+  return $ Pictures lp
 
 updateIn2Radius :: 
   ( Comonad w-- CxtAxon i w a g

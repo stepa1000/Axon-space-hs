@@ -13,18 +13,18 @@ import Data.Set as Set
 main = do
   arr <- initialArray
   let w = initialComonad arr
-  _ <- updateIn2BoxRedPic 4 11 (50,50) w
-  pic <- atomically $ adjCoDrowArray id w
+  _ <- updateIn2BoxRedPic 40 110 (500,500) w
+  pic <- drowWPic w
   initialDisplay pic
 
 initialDisplay pic = display
-  (InWindow "test" (100,100) (0,0))
+  (InWindow "test" (1000,1000) (0,0))
   black 
   pic 
 
 initialComonad arr = adjEnv arr (Identity ())
 
-initialArray = newArray ((0,0),(100,100)) (Color black cube)
+initialArray = newArray ((0,0),(1000,1000)) (Color black cube)
 
 {-
 main1 = do
