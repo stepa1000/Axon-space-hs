@@ -163,7 +163,7 @@ class HasNeiron a where
 
 initNeiron :: 
   ( Ix i
-  , HasMapVarT i a
+  , HasMapVarT (i,i) a
   , HasNeiron a
   ) =>
   a ->
@@ -174,13 +174,14 @@ initNeiron a0 (p0 :: (i,i)) p1 = do
   let li = range (p0,p1)
   la <- mapM (\i-> do
     tvN <- newTVarIO False
-    return ((set (mapVarTBool @i @_) Map.empty . set neiron tvN) a0)
+    return ((set (mapVarTBool @(i,i) @_) Map.empty . set neiron tvN) a0)
     ) li
   newListArray (p0,p1) la
 
 type CxtAxon i w a g = 
   ( Comonad w
   , Ix i
+  , Ix (i,i)
   , HasMapVarT (i,i) a
   , HasNeiron a
   , Random i
@@ -189,7 +190,7 @@ type CxtAxon i w a g =
   , Num i
   , Ord i
   , Show i
-  , Show a
+  -- , Show a
   , Integral i
   , CxtAxonNoG i w a
   )
@@ -197,6 +198,7 @@ type CxtAxon i w a g =
 type CxtAxonNoG i w a = 
   ( Comonad w
   , Ix i
+  , Ix (i,i)
   , HasMapVarT (i,i) a
   , HasNeiron a
   , Random i
@@ -205,7 +207,7 @@ type CxtAxonNoG i w a =
   , Num i
   , Ord i
   , Show i
-  , Show a
+  -- , Show a
   , Integral i
   )
 type NeironPoint i = (i,i)
@@ -887,7 +889,7 @@ type InitWIODPMK1 g w i a =
    , RandomGen g
    , Random i
    , CxtAxon i w a g 
-   , HasMapVarT i a
+   , HasMapVarT (i,i) a
    , Bounded i
    )
 

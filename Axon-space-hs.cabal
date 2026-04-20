@@ -28,6 +28,8 @@ library
       Data.Axon.Base.Axon
       Data.Axon.Base.DendritLogic
       Data.Axon.Base.Types
+      Data.Axon.Picture
+      Data.Logger
   other-modules:
       Paths_Axon_space_hs
   autogen-modules:
@@ -49,6 +51,7 @@ library
     , either
     , fgl
     , fgl-visualize
+    , generic-lens
     , gloss
     , hashable
     , lens
@@ -64,6 +67,7 @@ library
 executable Axon-space-exe
   main-is: Main.hs
   other-modules:
+      Visual
       Paths_Axon_space_hs
   autogen-modules:
       Paths_Axon_space_hs
@@ -85,6 +89,7 @@ executable Axon-space-exe
     , either
     , fgl
     , fgl-visualize
+    , generic-lens
     , gloss
     , hashable
     , lens
@@ -122,6 +127,7 @@ test-suite TreeHash-test
     , either
     , fgl
     , fgl-visualize
+    , generic-lens
     , gloss
     , hashable
     , lens

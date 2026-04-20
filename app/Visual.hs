@@ -4,10 +4,13 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DeriveGeneric #-}
 
-module Wisual where
+module Visual where
 
-imprt Prelude as P
+import Prelude as P
 
 import Control.Monad.STM
 import Control.Concurrent.STM.TVar
@@ -27,7 +30,7 @@ import Debug.Trace
 import Control.Lens
 import System.Random
 import Data.Map as Map
-imoprt Data.HashMap.Lazy as HMap
+import Data.HashMap.Lazy as HMap
 import Data.Set as Set
 import Data.HashSet as HSet
 import Control.Concurrent.Async
@@ -36,72 +39,37 @@ import Data.Foldable
 import Data.Proxy
 import Data.UUID
 import Data.Sequence as Seq
+import GHC.Generics
+import Control.Concurrent
+import Graphics.Gloss.Interface.IO.Animate
 
 import Data.Generics.Product.Fields
 
 import Data.Axon.Base.Axon
+import Data.Axon.Picture
 
-main = mainPingPong 
-
-cube :: Picture
-cube = Polygon [(0,0),(1,0),(1,1),(0,1),(0,0)]
-
-adjCoDrowArray :: 
-  ( Comonad w
-  , Real x
-  , Ix x
-  ) =>
-  (a -> IO Picture) ->
-  W.AdjointT 
-    (AdjArrayL (x,x) a)
-    (AdjArrayR (x,x) a)
-    w 
-    b ->
-  IO Picture
-adjCoDrowArray f w = do
-  lip <- getAssocs (coask w)
-  lp <- mapM (\((x,y),a)-> fmap (Translate (realToFrac x) (realToFrac y)) $ f a ) lip
-  return $ Pictures lp
- 
-adjCoDrowArrayNeiron ::  
-  ( Comonad w
-  , Real x
-  , Ix x
-  , CxtAxon i w a g 
-  ) =>
-  W.AdjointT 
-    (AdjArrayL (x,x) a)
-    (AdjArrayR (x,x) a)
-    w 
-    b ->
-  IO Picture
-adjCoDrowArrayNeiron w = do
-  adjCoDrowArray (\a-> do
-     readTVarIO $ a^.neiron
-     return $ if 
-        then return $ Color white $ cube
-	else return $ Pictures []) w
+-- main = mainPingPong 
 
 data BaseDendrit i = BaseDendrit
    { intersectAD :: Map.Map i (TVar Bool, Set.Set i) -- HashMap ???????????
    , bdNeiron :: TVar Bool
-   }
+   } deriving (Generic)
 
-instance HasMapVarT i a where
+instance HasMapVarT i (BaseDendrit i) where
    mapVarTBool = field @"intersectAD"
 
-instance HasNeiron a where
+instance HasNeiron (BaseDendrit i) where
    neiron = field @"bdNeiron"
 
 initBaseDendrit = do
    tvb <- newTVarIO False
    return $ BaseDendrit Map.empty tvb
 
-instacne InitWM w IO (BaseDendrit i) where
+instance InitWM w IO (BaseDendrit i) where
    initWM _ = initBaseDendrit 
 
-initializationADendritBD :: 
-   IO ( AxonDendritSetting (BaseDendrit (Int,Int)) Int
+initializationADendritBD :: HasMapVarT (Int,Int) (BaseDendrit (Int, Int)) =>
+   IO ( AxonDendritSetting StdGen (BaseDendrit (Int,Int)) Int
       , W.AdjointT
            (AdjArrayL (Int,Int) (BaseDendrit (Int,Int)))
            (AdjArrayR (Int,Int) (BaseDendrit (Int,Int)))
@@ -120,12 +88,13 @@ mainPingPong = do
    --forkIO $ fDrow tvendDF tvnowPic w
    forkIO $ fPP tvendDF tvnowPic axdes w
    animateIO 
-      (InWindow "Dendrit PingPong" black)
+      (InWindow "Dendrit PingPong" (1000,1000) (0,0))
+      black
       (\_-> fDrow w )
       (\_-> return ())
    where
       fPP tvDF tvP axdes w = do
          pbf <- pingPongDendrit axdes w
-         atomicaly $ writeTVar tvDF True
-	 print pdf
+         atomically $ writeTVar tvDF True
+	 print pbf
       fDrow w = adjCoDrowArrayNeiron w

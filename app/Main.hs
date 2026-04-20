@@ -10,12 +10,9 @@ import Data.Functor.Identity
 import Data.Map as Map
 import Data.Set as Set
 
-main = do
-  arr <- initialArray
-  let w = initialComonad arr
-  _ <- updateIn2BoxRedPic 40 110 (500,500) w
-  pic <- drowWPic w
-  initialDisplay pic
+import Visual
+
+main = mainPingPong
 
 initialDisplay pic = display
   (InWindow "test" (1000,1000) (0,0))
@@ -26,16 +23,11 @@ initialComonad arr = adjEnv arr (Identity ())
 
 initialArray = newArray ((0,0),(1000,1000)) (Color black cube)
 
-{-
-main1 = do
-  arr <- newArray ((0,0),(100,100)) (Color black cube)
-  let w = adjEnv arr (Identity ()) 
-  pic <- atomically $ do
-    adjCoDrowLine (1,1) (100,100) (fmap (const $ Color white cube) w)
-    adjCoDrowLine (50,25) (0,0) (fmap (const $ Color white cube) w)
-    adjCoDrowArray id w
-  display 
-    (InWindow "test" (100,100) (0,0))
-    black 
-    pic
--}
+mainRedBox = do
+  arr <- initialArray
+  let w = initialComonad arr
+  _ <- updateIn2BoxRedPic 40 110 (500,500) w
+  pic <- drowWPic w
+  initialDisplay pic 
+
+

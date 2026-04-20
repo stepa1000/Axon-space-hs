@@ -47,6 +47,7 @@ dependencies:
 - async
 - uuid
 - logict
+- generic-lens
   # - template-haskell
 
 ghc-options:
@@ -79,6 +80,17 @@ executables:
     dependencies:
     - Axon-space-hs
 
+#executables2:
+# visual-test-exe:
+#    main:                Visual.hs
+#    source-dirs:         visual-test
+#    ghc-options:
+#      - -threaded
+#      - -rtsopts
+#      - -with-rtsopts=-N
+#    dependencies:
+#      - Axon-space-hs 
+
 tests:
   TreeHash-test:
     main:                Spec.hs
@@ -90,13 +102,3 @@ tests:
     dependencies:
       - Axon-space-hs
 
-visual-test:
-  visual-test-exe:
-    main:                Visual.hs
-    source-dirs:         visual-test
-    ghc-options:
-      - -threaded
-      - -rtsopts
-      - -with-rtsopts=-N
-    dependencies:
-      - Axon-space-hs
