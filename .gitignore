@@ -5,3 +5,4 @@ TreeHash.cabal
 /random-1.2.1.2
 flake.nix2
 *.nix
+log

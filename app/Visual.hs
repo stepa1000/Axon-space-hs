@@ -47,6 +47,7 @@ import Data.Generics.Product.Fields
 
 import Data.Axon.Base.Axon
 import Data.Axon.Picture
+import Data.Logger
 
 -- main = mainPingPong 
 
@@ -68,25 +69,42 @@ initBaseDendrit = do
 instance InitWM w IO (BaseDendrit i) where
    initWM _ = initBaseDendrit 
 
+instance Logger (W.AdjointT
+           (AdjArrayL (Int,Int) (BaseDendrit (Int,Int)))
+           (AdjArrayR (Int,Int) (BaseDendrit (Int,Int)))
+           (WAdjLogger Identity)) where
+   logger = logger . lower
+   loggerFile = loggerFile . lower
+
 initializationADendritBD :: HasMapVarT (Int,Int) (BaseDendrit (Int, Int)) =>
+   [String] ->
+   FilePath ->
    IO ( AxonDendritSetting StdGen (BaseDendrit (Int,Int)) Int
       , W.AdjointT
            (AdjArrayL (Int,Int) (BaseDendrit (Int,Int)))
            (AdjArrayR (Int,Int) (BaseDendrit (Int,Int)))
-           Identity
+           (WAdjLogger Identity)
            ())
-initializationADendritBD = do
+initializationADendritBD tagLog fp = do
+   print "initAxonDendritSetting pre"
    iads <- initAxonDendritSetting (0,0) (1000,1000) Proxy 11 3 (1,3) 6 (div 81 3) -- 27
-   w <- initializationADendrit iads (Identity ())
+   print "initAxonDendritSetting post"
+   let wLogger = initWAdjL tagLog fp (Identity ())
+   w <- initializationADendrit iads (wLogger)
    return (iads,w)
 
 mainPingPong :: IO ()
 mainPingPong = do
+   print "Init pre"
    (axdes,w) <- initializationADendritBD 
+      ["initializationADendrit","randomAxon"] "./log"
+   print "Init post"
    tvendDF <- newTVarIO False
    tvnowPic <- newTVarIO $ Pictures []
    --forkIO $ fDrow tvendDF tvnowPic w
+   print "Fork pre"
    forkIO $ fPP tvendDF tvnowPic axdes w
+   print "Fork post"
    animateIO 
       (InWindow "Dendrit PingPong" (1000,1000) (0,0))
       black

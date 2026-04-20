@@ -41,6 +41,7 @@ import Data.Monoid
 import Data.Semigroup
 
 import Data.Axon.Base.Types
+import Data.Logger
 
 -- Array
 
@@ -236,6 +237,7 @@ lineAxon1 pyx pn p0 p1 w = do
 
 randomAxon :: 
   ( CxtAxon i w a g
+  , Logger w
   ) =>
   Proxy g ->
   NeironPoint i ->
@@ -250,14 +252,18 @@ randomAxon ::
 randomAxon (pxy :: Proxy g) pn p0 p1 w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr -- ???
-  if not $ p0 >= xpi && p1 <= ypi then error "randomAxon index bound error"
+  logW (lower w) ["randomAxon"] $ "randomAxon:getBounds:" ++ (show ppi)
+  if not $ p0 >= xpi && p1 <= ypi && p0 <= ypi && p1 >= xpi then error "randomAxon index bound error"
     else do
       rpi <- randomRIO (p0,p1)
+      logW (lower w) ["randomAxon"] $ "randomAxon:randomRIO:" ++ (show rpi)
+      logW (lower w) ["randomAxon"] $ "randomAxon:pn:" ++ (show pn)
       atomically $ lineAxon1 pxy pn pn rpi w
       return rpi
 
 randomAxoninBox ::
   ( CxtAxon i w a g
+  , Logger w
   ) =>
   Proxy g ->
   NeironPoint i ->
@@ -279,6 +285,7 @@ randomAxoninBox (pxy :: Proxy g) np@(xn,yn) r w = do
 
 initAxonForNeironBox ::
   ( CxtAxon i w a g
+  , Logger w
   ) =>
   Proxy g -> 
   i ->
@@ -292,6 +299,7 @@ initAxonForNeironBox pyx r w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr
   let allN = range ppi
+  logW (lower w) ["initAxonForNeironBox"] "Pre mapConcurrently"
   mapConcurrently (\i->do
     ia <- randomAxoninBox pyx i r w
     return (i,ia)
@@ -891,6 +899,7 @@ type InitWIODPMK1 g w i a =
    , CxtAxon i w a g 
    , HasMapVarT (i,i) a
    , Bounded i
+   , Logger w
    )
 
 data AxonDendritSetting g a i = AxonDendritSetting 
@@ -956,9 +965,13 @@ initializationADendrit :: InitWIODPMK1 StdGen w i a =>
            w
            ())
 initializationADendrit axdes w = do
+   logW w ["initializationADendrit"] "Start initializationADendrit"
    adjArr <- initNeironWIO axdes w
+   logW w ["initializationADendrit"] "Pre initAxonForNeironBoxWIO"
    initAxonForNeironBoxWIO axdes adjArr
+   logW w ["initializationADendrit"] "Post initAxonForNeironBoxWIO"
    allAxogenesPointWIO  axdes adjArr
+   logW w ["initializationADendrit"] "End initializationADendrit"
    return adjArr
 
 updateADendrit :: InitWIODPMK1 StdGen w i a => 

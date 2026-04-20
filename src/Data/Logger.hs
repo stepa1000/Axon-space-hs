@@ -34,7 +34,7 @@ import Data.Set as Set
 import Data.HashSet as HSet
 import Control.Concurrent.Async
 import Data.Traversable
-import Data.Foldable
+import Data.Foldable as Fold
 import Data.Proxy
 import Data.UUID
 import Data.Sequence as Seq
@@ -47,9 +47,10 @@ import Data.Generics.Product.Fields
 class Comonad w => Logger w where
    logger :: w b -> HashSet String
    loggerFile :: w b -> FilePath
+   loggerQueue :: w b -> TQueue String
 
-log :: Logger w => w b -> [String] -> String -> IO ()
-log w tags str = do
+logW :: Logger w => w b -> [String] -> String -> IO ()
+logW w tags str = do
    let hstags = logger w
    let fp = loggerFile w
    if and $ fmap (\t-> HSet.member t hstags) tags
@@ -61,6 +62,7 @@ log w tags str = do
 data DataLogger = DataLogger
    { tagsLogger :: HashSet String
    , fileLogger :: FilePath 
+   , queueLogger :: TQueue String
    }
 
 type AdjLoggerL = Env DataLogger
@@ -71,6 +73,12 @@ type WAdjLogger w = W.AdjointT
     AdjLoggerL
     AdjLoggerR
     w
+
+initWAdjL :: Comonad w => [String] -> FilePath -> w () -> WAdjLogger w () 
+initWAdjL ls fp w = initWAdjLogger (DataLogger (Fold.fold $ fmap (HSet.singleton) ls) fp) w
+
+initWAdjLogger :: Comonad w => DataLogger -> w () -> WAdjLogger w ()
+initWAdjLogger dl w = adjEnv dl w
 
 instance Comonad w => Logger (WAdjLogger w) where
    logger w = tagsLogger $ coask w 
