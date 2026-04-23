@@ -14,6 +14,7 @@ import Prelude as P
 import Control.Monad.STM
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM.TArray
+import Control.Concurrent.STM.TQueue
 import Control.Core.Composition
 import Control.Base.Comonad
 import Graphics.Gloss.Data.Picture
@@ -54,10 +55,32 @@ logW w tags str = do
    let hstags = logger w
    let fp = loggerFile w
    if and $ fmap (\t-> HSet.member t hstags) tags
-      then writeFile fp str
+      then atomically $ writeTQueue (loggerQueue w) $ str ++ "\n"
       else if HSet.member "logFalse" hstags 
-         then writeFile fp $ "logFalse for tags: " ++ (show tags)
+         then do -- writeFile fp $ "logFalse for tags: " ++ (show tags)
+	   atomically $ writeTQueue (loggerQueue w) $ "logFalse for tags: " ++ (show tags) ++ "\n"
 	 else return ()
+
+logWSTM :: Logger w => w b -> [String] -> String -> STM ()
+logWSTM w tags str = do
+   let hstags = logger w
+   let fp = loggerFile w
+   if and $ fmap (\t-> HSet.member t hstags) tags
+      then writeTQueue (loggerQueue w) $ str ++ "\n"
+      else if HSet.member "logFalse" hstags 
+         then do -- writeFile fp $ "logFalse for tags: " ++ (show tags)
+	   writeTQueue (loggerQueue w) $ "logFalse for tags: " ++ (show tags) ++ "\n"
+	 else return ()
+
+
+logUpdate :: Logger w => w b -> IO () 
+logUpdate w = do
+  lstr <- atomically $ do
+     la <- flushTQueue (loggerQueue w) 
+     check $ not $ P.null la
+     return la
+  mapM (\str -> appendFile (loggerFile w) str) lstr
+  logUpdate w
 
 data DataLogger = DataLogger
    { tagsLogger :: HashSet String
@@ -74,8 +97,14 @@ type WAdjLogger w = W.AdjointT
     AdjLoggerR
     w
 
-initWAdjL :: Comonad w => [String] -> FilePath -> w () -> WAdjLogger w () 
-initWAdjL ls fp w = initWAdjLogger (DataLogger (Fold.fold $ fmap (HSet.singleton) ls) fp) w
+initWAdjLIO :: Comonad w => [String] -> FilePath -> w () -> IO (WAdjLogger w ())
+initWAdjLIO ls fp w = do
+   qu <- newTQueueIO
+   writeFile fp ""
+   return $ initWAdjL ls fp qu w
+
+initWAdjL :: Comonad w => [String] -> FilePath -> TQueue String -> w () -> WAdjLogger w () 
+initWAdjL ls fp qustr w = initWAdjLogger (DataLogger (Fold.fold $ fmap (HSet.singleton) ls) fp qustr) w
 
 initWAdjLogger :: Comonad w => DataLogger -> w () -> WAdjLogger w ()
 initWAdjLogger dl w = adjEnv dl w
@@ -83,4 +112,5 @@ initWAdjLogger dl w = adjEnv dl w
 instance Comonad w => Logger (WAdjLogger w) where
    logger w = tagsLogger $ coask w 
    loggerFile w = fileLogger $ coask w 
+   loggerQueue w = queueLogger $ coask w 
 

@@ -87,9 +87,10 @@ initializationADendritBD :: HasMapVarT (Int,Int) (BaseDendrit (Int, Int)) =>
            ())
 initializationADendritBD tagLog fp = do
    print "initAxonDendritSetting pre"
-   iads <- initAxonDendritSetting (0,0) (1000,1000) Proxy 11 3 (1,3) 6 (div 81 3) -- 27
+   iads <- initAxonDendritSetting (0,0) (500,500) Proxy 11 3 (1,3) 6 (div 81 3) -- 27
    print "initAxonDendritSetting post"
-   let wLogger = initWAdjL tagLog fp (Identity ())
+   wLogger <- initWAdjLIO tagLog fp (Identity ())
+   forkIO $ logUpdate wLogger
    w <- initializationADendrit iads (wLogger)
    return (iads,w)
 

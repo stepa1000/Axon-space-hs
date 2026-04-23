@@ -55,6 +55,7 @@ adjCoDrowLineV ::
   , Ix x
   , Real x
   , Show x
+  , Logger w
   ) =>
   (x,x) ->
   (x,x) ->
@@ -76,7 +77,7 @@ adjCoDrowLineV (x0',y0') (x1',y1') wa = let
     f x2 p2 (i + 1)
   f _ _ _ = return ()
   f2 x p i = do
-    -- traceShowM $ "VIndex: " ++ (show (x,y0 + i))
+    logWSTM (lower wa) ["adjCoDrowLineV"] $ "adjCoDrowLineV:xy:" ++ (show (x,y0 + i))
     a0 <- readArray (coask wa) (x, y0 + i)
     writeArray (coask wa) (x, y0 + i) ((extract wa) a0)
     if p >= 0
@@ -92,6 +93,7 @@ adjCoDrowLineH ::
   , Real x
   , MArray TArray a STM
   , Show x
+  , Logger w
   ) =>
   (x,x) ->
   (x,x) ->
@@ -110,24 +112,16 @@ adjCoDrowLineH ((x0' :: x),y0') (x1',y1') wa = let
   dy = dy' * dir
   f y p i | i < (dx+1) = do
     (y2,p2) <- f2 y p i
-    --traceShowM $ "f: " ++ (show i )
     f y2 p2 (i+1)
   f _ _ _ = return ()
-  -- f2 :: (MArray TArray a STM) => x -> x -> x -> STM (x,x)
   f2 y p i = do
-    -- traceShowM $ "Points: " ++ (show (x0',y0')) ++ " " (show (x1',y1'))
-    --traceShowM $ "HIndex: " ++ (show (x0+i, y))
+    logWSTM (lower wa) ["adjCoDrowLineH"] $ "adjCoDrowLineH:xy:" ++ (show (x0 + i,y))
     a0 <- readArray (coask wa) (x0+i, y)   
     writeArray (coask wa) (x0+i, y) ((extract wa) a0)
-    --traceShowM $ "Post writeArray"
-    --traceShowM $ "y: " ++ (show y)
-    --traceShowM $ "p: " ++ (show p)
     if p >= 0
       then do
-        --traceShowM $ "return1: " ++ (show (y+dir,p-2*dx))
         return (y+dir,p- 2*dx)
       else do
-        --traceShowM $ "return2: " ++ (show (y, p+2*dy))
         return (y, p + 2 * dy)
   in if dx /= 0
     then do
@@ -139,6 +133,7 @@ adjCoDrowLine ::
   , Ix x
   , Real x
   , Show x
+  , Logger w
   ) =>
   (x,x) ->
   (x,x) ->
@@ -210,6 +205,7 @@ type CxtAxonNoG i w a =
   , Show i
   -- , Show a
   , Integral i
+  , Logger w
   )
 type NeironPoint i = (i,i)
 
@@ -228,6 +224,7 @@ lineAxon1 ::
   -> STM ()
 lineAxon1 pyx pn p0 p1 w = do
   let arr = coask w
+  logWSTM (lower w) ["lineAxon1"] $ "lineAxon1:pn:" ++ (show pn)
   an <- readArray arr pn
   let tvAxonN = an^.neiron
   adjCoDrowLine p0 p1 (fmap (const (\ a-> let
@@ -252,12 +249,14 @@ randomAxon ::
 randomAxon (pxy :: Proxy g) pn p0 p1 w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr -- ???
-  logW (lower w) ["randomAxon"] $ "randomAxon:getBounds:" ++ (show ppi)
+  logW (lower w) ["randomAxon", "getBounds"] $ "randomAxon:getBounds:" ++ (show ppi)
+  logW (lower w) ["randomAxon","p0p1"] $ "randomAxon:p0:" ++ (show p0)
+  logW (lower w) ["randomAxon","p0p1"] $ "randomAxon:p1:" ++ (show p1)
   if not $ p0 >= xpi && p1 <= ypi && p0 <= ypi && p1 >= xpi then error "randomAxon index bound error"
     else do
       rpi <- randomRIO (p0,p1)
-      logW (lower w) ["randomAxon"] $ "randomAxon:randomRIO:" ++ (show rpi)
-      logW (lower w) ["randomAxon"] $ "randomAxon:pn:" ++ (show pn)
+      logW (lower w) ["randomAxon", "rpi"] $ "randomAxon:randomRIO:" ++ (show rpi)
+      logW (lower w) ["randomAxon", "pn"] $ "randomAxon:pn:" ++ (show pn)
       atomically $ lineAxon1 pxy pn pn rpi w
       return rpi
 
