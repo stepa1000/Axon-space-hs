@@ -19,10 +19,10 @@ initialDisplay pic = display
   black 
   pic 
 
-initialComonad arr = adjEnv arr (Identity ())
+--initialComonad arr = adjEnv arr (Identity ())
 
-initialArray = newArray ((0,0),(1000,1000)) (Color black cube)
-
+--initialArray = newArray ((0,0),(1000,1000)) (Color black cube)
+{-
 mainRedBox = do
   arr <- initialArray
   let w = initialComonad arr
@@ -30,4 +30,4 @@ mainRedBox = do
   pic <- drowWPic w
   initialDisplay pic 
 
-
+-}
