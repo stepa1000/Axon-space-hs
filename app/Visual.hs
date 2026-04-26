@@ -87,7 +87,7 @@ initializationADendritBD :: HasMapVarT (Int,Int) (BaseDendrit (Int, Int)) =>
            ())
 initializationADendritBD tagLog fp = do
    print "initAxonDendritSetting pre"
-   iads <- initAxonDendritSetting (0,0) (500,500) Proxy 3 3 (1,3) 6 (div 81 3) -- 27
+   iads <- initAxonDendritSetting (0,0) (500,500) Proxy 11 11 (5,20) 1 (div 81 3) -- 27
    print "initAxonDendritSetting post"
    wLogger <- initWAdjLIO tagLog fp (Identity ())
    forkIO $ logUpdate wLogger
@@ -98,7 +98,7 @@ mainPingPong :: IO ()
 mainPingPong = do
    print "Init pre"
    (axdes,w) <- initializationADendritBD 
-      ["pingPongDendrit","updateDendritList","waveInterval"] "./log"
+      ["updateIn2Box"] "./log" -- initAxogenesPoint
    print "Init post"
    tvendDF <- newTVarIO False
    tvnowPic <- newTVarIO $ Pictures []
@@ -113,8 +113,38 @@ mainPingPong = do
       (\_-> return ())
    where
       fPP tvDF tvP axdes w = do
-         pbf <- showGenerationDP axdes w -- pingPongDendrit axdes w
+         pbf <- showWaveRDP axdes w
+         -- showGenerationDP axdes w -- pingPongDendrit axdes w
 	 print "Post pingPongDendrit"
          atomically $ writeTVar tvDF True
 	 -- print pbf
       fDrow w = adjCoDrowArrayNeiron w
+
+mainDrowLines :: IO ()
+mainDrowLines = do
+   print "Init pre"
+   (axdes,w) <- initializationADendritBD 
+      ["updateIn2Box"] "./log" -- initAxogenesPoint
+   print "Init post"
+   tvendDF <- newTVarIO False
+   tvnowPic <- newTVarIO $ Pictures []
+   --forkIO $ fDrow tvendDF tvnowPic w
+   animateIO 
+      (InWindow "Dendrit lines" (1000,1000) (0,0))
+      black
+      (\_-> fDrow axdes )
+      (\_-> return ())
+   where
+      fDrow axdes = do 
+         let tl = listLine axdes
+	 l <- readTVarIO tl
+	 let ll = P.length l 
+         i <- randomRIO (1,ll-1)
+	 let (p1@(x1,y1),p2@(x2,y2)) = l !! i
+	 i2 <- randomRIO (1,ll-1)
+	 let li2 = l !! i2
+	 i3 <- randomRIO (1,ll-1)
+	 let li3 = l !! i3
+	 return $ Pictures [dedritToPicture (p1,p2), dedritToPicture li2, dedritToPicture li3]
+
+dedritToPicture (p1@(x1,y1),p2@(x2,y2)) = Color white $ Line [(realToFrac x1, realToFrac y1), (realToFrac x2, realToFrac y2)]

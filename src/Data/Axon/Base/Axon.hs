@@ -40,6 +40,8 @@ import Data.Sequence as Seq
 import Data.List as List
 import Data.Monoid
 import Data.Semigroup
+import Control.Applicative
+import Data.Maybe
 
 import Data.Axon.Base.Types
 import Data.Logger
@@ -287,10 +289,35 @@ randomAxoninBox (pxy :: Proxy g) np@(xn,yn) r w = do
   let arr = coask w
   let p0@(x0,y0) = (xn - r, yn - r)
   let p1@(x1,y1) = (xn + r, yn + r)
-  ppi@(xpi,ypi) <- getBounds arr -- ???
-  let p0b = if p0 >= xpi && p0 <= ypi then p0 else xpi
-  let p1b = if p1 >= xpi && p1 <= ypi then p1 else ypi
-  randomAxon pxy np p0b p1b w
+  ppi@(xpi@(xi1,yi1),ypi@(xi2,yi2)) <- getBounds arr -- ???
+  --let p0b = if p0 >= xpi && p0 <= ypi then p0 else xpi
+  --let p1b = if p1 >= xpi && p1 <= ypi then p1 else ypi
+  let x0b = fromJust $ fxp1 p0 ppi
+  let y0b = fromJust $ fyp1 p0 ppi
+  let x1b = fromJust $ fxp1 p1 ppi
+  let y1b = fromJust $ fyp1 p1 ppi
+  randomAxon pxy np (x0b,y0b) (x1b,y1b) w
+  where
+     fxp1 (x0,y0) (xpi@(xi1,yi1),ypi@(xi2,yi2)) = (do
+        guard $ x0 < xi1
+	return xi1
+	) <|> (do
+        guard $ x0 > xi2
+	return xi2
+	) <|> (do
+	guard $ xi1 <= x0 && x0 <= xi2
+        return x0
+	)
+     fyp1 (x0,y0) (xpi@(xi1,yi1),ypi@(xi2,yi2)) = (do
+        guard $ y0 < yi1
+	return yi1
+	) <|> (do
+        guard $ y0 > yi2
+	return yi2
+	) <|> (do
+	guard $ yi1 <= y0 && y0 <= yi2
+        return y0
+	)
 
 initAxonForNeironBox ::
   ( CxtAxon i w a g
@@ -348,28 +375,35 @@ initAxogenesPoint tvg p@(x :: i,y) (minca,ca) w = do
   ppi@(xpi,ypi) <- getBounds arr
   if not $ p >= xpi && p <= ypi then error "axogenesPoint: index out of bounds in array"
     else do
-      cha <- randomRSTM tvg (0,ca)
-      if cha <= minca then return ()
-        else do
-	  ae <- readArray arr p
-	  let mapA = ae^.(mapVarTBool @(i,i))
-	  let lk = Map.keys mapA
-	  let ll = P.length lk
-	  logWSTM (lower w) ["initAxogenesPoint"] $ "initAxogenesPoint:ll:" ++ (show ll)
-	  if ll > 1 then return () 
-	    else do 
-	      ril0 <- randomRSTM tvg (1,ll - 1)
-	      ril1 <- randomRSTM tvg (1,ll - 1)
-	      if ril0 == ril1 || ril0 > ll || ril1 > ll || ril0 <= 0 || ril1 <= 0 then return ()
-	        else do
-		writeArray arr p 
-		   ( set 
+      -- cha <- randomRSTM tvg (0,ca)
+      -- if cha <= minca then return ()
+      ae <- readArray arr p
+      let mapA = ae^.(mapVarTBool @(i,i)) 
+      let lk = Map.keys mapA
+      let ll = P.length lk
+      logWSTM (lower w) ["initAxogenesPoint"] $ "initAxogenesPoint:ll:" ++ (show ll)
+      if ll <= 1 then return () 
+         else do 
+	 -- ril0 <- randomRSTM tvg (1,ll)
+	 mapM_ (\ril0 -> do
+            cha <- randomRSTM tvg (0,ca)
+	    when (cha <= minca && ll > 1) $ do
+	       ril1 <- randomRSTM tvg (1,ll - 1)
+	       logWSTM (lower w) ["initAxogenesPoint"] $ "initAxogenesPoint:ril0:" ++ (show ril0)
+	       logWSTM (lower w) ["initAxogenesPoint"] $ "initAxogenesPoint:ril1:" ++ (show ril1)
+	       let kil1 = (lk !! ril1)
+	       if ril0 == kil1 then return ()
+	          else do
+		  aen <- readArray arr p
+		  writeArray arr p 
+		     ( over 
 		        (mapVarTBool @(i,i)) 
 			( Map.adjust 
 			     (\(tvb,seti)-> (tvb, Set.insert (lk !! ril1) seti) ) -- Maybe all order, nit ine side
-			     (lk !! ril0) 
-			     mapA) 
-			ae)  
+			     (ril0) 
+			     ) 
+			aen) 
+            ) lk  
 
 allAxogenesPoint :: 
   ( CxtAxon i w a g 
@@ -410,7 +444,10 @@ updateAxogenesPoint pg (p :: (i,i)) w = do
     else do
       ae <- readArray arr p
       let mapA = ae^.(mapVarTBool @(i,i))
+      logWSTM (lower w) ["updateAxogenesPoint"] $ "updateAxogenesPoint:size:mapA:" ++ (show $ Map.size mapA)
       _ <- Map.traverseWithKey (\ pk@(xk,yk) (tvbool, sp) -> do
+         -- Map.Map i (TVar Bool, Set.Set i))
+         logWSTM (lower w) ["updateAxogenesPoint"] $ "updateAxogenesPoint:size:sp:" ++ (show $ Set.size sp)
          boolAxon <- readTVar tvbool
          setBool <- foldlM (\ bn pset -> do -- pset
 	    -- boolAxon <- readTVar tvbool
@@ -426,8 +463,9 @@ updateAxogenesPoint pg (p :: (i,i)) w = do
 	    return $ bool2 : bn -- (snd mtvbool2sp2)
          -- return undefined
 	    ) [] sp
-	 let reBool = Fold.foldl (||) False setBool
-	 writeTVar tvbool reBool
+	 -- let reBool = Fold.foldl (||) boolAxon setBool
+	 -- writeTVar tvbool reBool
+	 return ()
 	) mapA
       return ()
 
@@ -503,6 +541,8 @@ updateIn2Box r1' r2' p f w = do
   let r2 = if r1' > r2' then r1' else r2'
   let intr2 = round r2-- fromIntegral r2
   let intr1 = round r1-- fromIntegral r1 -- r1 < r2
+  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:intr2:" ++ (show intr2)
+  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:intr1:" ++ (show intr1)  
   let (xb1,yb1) = xpi
   let (xb2,yb2) = ypi -- xpi < ypi ???????!!!!!!!!!!!!
   let (x0,y0) = p
@@ -514,28 +554,33 @@ updateIn2Box r1' r2' p f w = do
   let vrd = rd - intr2
   let vrs = rs - intr2
   let vra = ra - intr2
-  let xr2 = if vrd < 0 then xb2 else maybe x0 id ((range (x0,xb2)) List.!? intr2)
-  let ys2 = if vrs < 0 then yb1 else maybe y0 id ((range (yb1,y0)) List.!? intr2)
-  let xl2 = if vra < 0 then xb1 else maybe x0 id ((range (xb1,x0)) List.!? intr2)
-  let yw2 = if vrw < 0 then yb2 else maybe y0 id ((range (y0,yb2)) List.!? intr2)
+  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:vrs:" ++ (show vrs)
+  let xr2 = if vrd < 0 then xb2 else maybe (last (range (x0,xb2)) ) id ((range (x0,xb2)) List.!? intr2)
+  let ys2 = if vrs < 0 then yb1 else maybe (last (range (yb1,y0)) ) id ((List.reverse $ range (yb1,y0)) List.!? intr2)
+  let xl2 = if vra < 0 then xb1 else maybe (last (range (xb1,x0)) ) id ((List.reverse $ range (xb1,x0)) List.!? intr2)
+  let yw2 = if vrw < 0 then yb2 else maybe (last (range (y0,yb2)) ) id ((range (y0,yb2)) List.!? intr2)
   -- sqrt (x + y) = r => x^2 + y^2 = r^2
   -- 2*a^2 = r^2
   -- a^2 = (r^2) / 2
   -- a = sqrt ((r^2) / 2)
-  let a = round $ sqrt (fromIntegral $ quot (intr1^2) 2)
+  -- let a = round $ sqrt (fromIntegral $ quot (intr1^2) 2)
+  let a = intr1 
   let vrw2 = rw - a
   let vrd2 = rd - a
   let vrs2 = rs - a
   let vra2 = ra - a
+  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:vrs2:" ++ (show vrs2)
   logW (lower w) ["updateIn2Box"] $ "updateIn2Box:a:" ++ (show a)
-  let yw1 = if vrw2 < 0 then yb2 else maybe y0 id ((range (y0,yb2)) List.!? a)
-  let xr1 = if vrd2 < 0 then xb2 else maybe x0 id ((range (x0,xb2)) List.!? a)
-  let ys1 = if vrs2 < 0 then yb1 else maybe y0 id ((range (yb1,y0)) List.!? a)
-  let xl1 = if vra2 < 0 then xb1 else maybe x0 id ((range (xb1,x0)) List.!? a)
+  let yw1 = if vrw2 < 0 then yb2 else maybe (last (range (y0,yb2))) id ((range (y0,yb2)) List.!? a)
+  let xr1 = if vrd2 < 0 then xb2 else maybe (last (range (x0,xb2))) id ((range (x0,xb2)) List.!? a)
+  let ys1 = if vrs2 < 0 then yb1 else maybe (last (range (yb1,y0))) id ((List.reverse $ range (yb1,y0)) List.!? a)
+  let xl1 = if vra2 < 0 then xb1 else maybe (last (range (xb1,x0))) id ((List.reverse $ range (xb1,x0)) List.!? a)
+  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:range:yb1,y0:" ++ (show $ P.length (range (yb1,y0)))
   let dyyw = range (yw1,yw2)
   let dxxd = range (xr1,xr2)
-  let dyys = range (ys1,ys2)
-  let dxxa = range (xl1,xl2)
+  let dyys = range (ys2,ys1)
+  let dxxa = range (xl2,xl1)
+  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:dyys:" ++ (show $ P.length dyys)
   let pwwd = liftA2 (,) (range (x0,xr1)) dyyw
   let pwwdd = liftA2 (,) dxxd dyyw
   let pwdd = liftA2 (,) dxxd (range (y0,yw1))
@@ -548,6 +593,7 @@ updateIn2Box r1' r2' p f w = do
   let pwaa = liftA2 (,) dxxa (range (y0,yw1))
   let pwwaa = liftA2 (,) dxxa dyyw
   let pwwa = liftA2 (,) (range (xl1,x0)) dyyw
+  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:pssaa:length:" ++ (show $ P.length pssaa)
   let in2BS = pwwd ++ pwwdd ++ pwdd ++ psdd ++ pssdd ++ pssd ++ pssa ++ pssaa ++ psaa ++ pwaa ++ pwwaa ++ pwwa
   forConcurrently_ in2BS (\i-> do
     atomically $ do
@@ -628,8 +674,8 @@ updateIn2Radius r1 r2 p0@(x0,y0) f w = do
   logW (lower w) ["updateIn2Radius"] $ "updateIn2Radius:r2:" ++ (show r2)
   updateIn2Box r1 r2 p0
     (\ ip@(xi,yi) w -> do
-      let rv = abs (xi - x0) + abs (yi - y0) 
-      if (rv > (round r1)) && (rv < (round r2)) 
+      let rv = (xi - x0)^2 + (yi - y0)^2
+      if (rv > (round r1)^2 ) && (rv < (round r2)^2 ) 
         then do
 	  f ip w
 	else return ()
@@ -672,6 +718,29 @@ updateIn2RUpClearAxoginesPoint ::
 updateIn2RUpClearAxoginesPoint pg r1 r2 p0 w = 
    updateIn2Radius r1 r2 p0 (clearAxoginesPoint pg) w
 
+updateIn2RNeiron :: 
+  ( Comonad w-- CxtAxon i w a g
+  , Ix i
+  , CxtAxon i w a g
+  ) =>
+  Proxy g ->
+  Float -> -- ???? Int
+  Float -> -- ????? Int
+  (i,i) ->
+  W.AdjointT 
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b ->
+  IO ()
+updateIn2RNeiron pg r1 r2 p0 w =
+   updateIn2Radius r1 r2 p0 (\ p wn -> do
+      let arr = coask wn
+      ae <- readArray arr p
+      let tn = ae^.neiron
+      writeTVar tn True
+      ) w
+
 waveInterval ::
    ( Comonad w-- CxtAxon i w a g
    , Ix i
@@ -708,6 +777,23 @@ waveInterval rA p0 f w = do
       logW (lower w) ["waveInterval"] $ "waveInterval:" ++ (show (x,y))
       f x y p0 w) (P.zip l1 l2) 
    return ()
+
+waveNeironTrue ::   
+   ( Comonad w-- CxtAxon i w a g
+   , Ix i
+   , Num i
+   , CxtAxon i w a g
+   ) => 
+   Proxy g ->
+   Float ->
+   (i,i) ->
+    W.AdjointT 
+      (AdjArrayL (i,i) a)
+      (AdjArrayR (i,i) a)
+      w
+      b ->
+   IO ()
+waveNeironTrue pg s i w = waveInterval s i (\ r1 r2 p wn -> updateIn2RNeiron pg r1 r2 p w) w
 
 updateDedritSpace :: -- GOOD abstract the
   ( Comonad w-- CxtAxon i w a g
@@ -1049,6 +1135,46 @@ showGenerationDP axdes w = do
    let p2 = (\(x,y)->(x-v,y-v)) (uperIndex axdes)
    dp1 <- generateDendritPaternIO p1 (fromIntegral $ v) (trayGeneration axdes) w
    atomically $ writeDendritPatern dp1 w
+
+showWaveRDP :: InitWIODPMK1 StdGen w i a => 
+   AxonDendritSetting StdGen a i -> 
+   W.AdjointT
+           (AdjArrayL (i,i) a)
+           (AdjArrayR (i,i) a)
+           w
+           () ->
+   IO ()
+showWaveRDP axdes w = do
+   let v = fromIntegral $ lengthPattern axdes
+   let p1 = (\(x,y)->(x+v,y+v)) (lowerIndex axdes)
+   let p2 = (\(x,y)->(x-v,y-v)) (uperIndex axdes)
+   -- dp1 <- generateDendritPaternIO p1 (fromIntegral $ v) (trayGeneration axdes) w
+   -- waveNeironTrue (proxyG axdes) 3 p1 w
+   --updateIn2RNeiron (proxyG axdes) 9 12 p1 w
+   --updateIn2RNeiron (proxyG axdes) 12 15 p1 w
+   updateIn2RNeiron (proxyG axdes) 15 18 p1 w
+   -- atomically $ writeDendritPatern dp1 w
+   -- updateIn2RUpAxogenesPoint (proxyG axdes) 0 11 p1 w 
+   -- updateIn2RUpAxogenesPoint (proxyG axdes) 0 22 p1 w
+
+showAxogenesDP :: InitWIODPMK1 StdGen w i a => 
+   AxonDendritSetting StdGen a i -> 
+   W.AdjointT
+           (AdjArrayL (i,i) a)
+           (AdjArrayR (i,i) a)
+           w
+           () ->
+   IO ()
+showAxogenesDP axdes w = do
+   let v = fromIntegral $ lengthPattern axdes
+   let p1 = (\(x,y)->(x+v,y+v)) (lowerIndex axdes)
+   let p2 = (\(x,y)->(x-v,y-v)) (uperIndex axdes)
+   dp1 <- generateDendritPaternIO p1 (fromIntegral $ v) (trayGeneration axdes) w
+   -- updateIn2RNeiron (proxyG axdes) 1 22 p1 w
+   atomically $ writeDendritPatern dp1 w
+   -- updateIn2RUpAxogenesPoint (proxyG axdes) 0 11 p1 w 
+   updateIn2RUpAxogenesPoint (proxyG axdes) 11 12 p1 w
+
 
 
 
