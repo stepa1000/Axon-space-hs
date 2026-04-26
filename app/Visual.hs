@@ -87,7 +87,7 @@ initializationADendritBD :: HasMapVarT (Int,Int) (BaseDendrit (Int, Int)) =>
            ())
 initializationADendritBD tagLog fp = do
    print "initAxonDendritSetting pre"
-   iads <- initAxonDendritSetting (0,0) (500,500) Proxy 11 11 (5,20) 1 (div 81 3) -- 27
+   iads <- initAxonDendritSetting (0,0) (100,100) Proxy 11 11 (1,12) 1 (div 81 3) -- 27
    print "initAxonDendritSetting post"
    wLogger <- initWAdjLIO tagLog fp (Identity ())
    forkIO $ logUpdate wLogger
@@ -98,7 +98,7 @@ mainPingPong :: IO ()
 mainPingPong = do
    print "Init pre"
    (axdes,w) <- initializationADendritBD 
-      ["updateIn2Box"] "./log" -- initAxogenesPoint
+      ["readDendritPatern"] "./log" -- initAxogenesPoint
    print "Init post"
    tvendDF <- newTVarIO False
    tvnowPic <- newTVarIO $ Pictures []
@@ -113,11 +113,11 @@ mainPingPong = do
       (\_-> return ())
    where
       fPP tvDF tvP axdes w = do
-         pbf <- showWaveRDP axdes w
+         pbf <- pingPongDendrit axdes w
          -- showGenerationDP axdes w -- pingPongDendrit axdes w
 	 print "Post pingPongDendrit"
          atomically $ writeTVar tvDF True
-	 -- print pbf
+	 print pbf
       fDrow w = adjCoDrowArrayNeiron w
 
 mainDrowLines :: IO ()

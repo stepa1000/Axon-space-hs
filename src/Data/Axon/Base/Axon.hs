@@ -401,6 +401,9 @@ initAxogenesPoint tvg p@(x :: i,y) (minca,ca) w = do
 			( Map.adjust 
 			     (\(tvb,seti)-> (tvb, Set.insert (lk !! ril1) seti) ) -- Maybe all order, nit ine side
 			     (ril0) 
+			. Map.adjust 
+			     (\(tvb,seti)-> (tvb, Set.insert (ril0) seti) ) -- Maybe all order, nit ine side
+			     (lk !! ril1)
 			     ) 
 			aen) 
             ) lk  
@@ -440,7 +443,7 @@ updateAxogenesPoint ::
 updateAxogenesPoint pg (p :: (i,i)) w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr
-  if not $ p >= xpi && p <= ypi then error "updateAxogenesPoint: index out of bounds"
+  if not $ p >= xpi && p <= ypi then return () -- error "updateAxogenesPoint: index out of bounds"
     else do
       ae <- readArray arr p
       let mapA = ae^.(mapVarTBool @(i,i))
@@ -502,7 +505,7 @@ clearAxoginesPoint ::
 clearAxoginesPoint pg (p :: (i,i)) w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr
-  if not $ p >= xpi && p <= ypi then error "updateAxogenesPoint: index out of bounds"
+  if not $ p >= xpi && p <= ypi then return () -- $ error "updateAxogenesPoint: index out of bounds"
     else do
       ae <- readArray arr p
       let mapA = ae^.(mapVarTBool @(i,i))
@@ -515,6 +518,7 @@ updateIn2Box ::
   ( Comonad w-- CxtAxon i w a g
   , Logger w
   , Ix i
+  , Integral i
   ) =>
   Float -> -- ???? Int
   Float -> -- ????? Int
@@ -537,12 +541,12 @@ updateIn2Box r1' r2' p f w = do
   let arr = coask w
   ppi@(xpi,ypi) <- getBounds arr
   -- (x - x0)^2 + (y - y0)^2 = r^2
-  let r1 = if r1' > r2' then r2' else r1'
-  let r2 = if r1' > r2' then r1' else r2'
-  let intr2 = round r2-- fromIntegral r2
-  let intr1 = round r1-- fromIntegral r1 -- r1 < r2
-  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:intr2:" ++ (show intr2)
-  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:intr1:" ++ (show intr1)  
+  let r1 = round $ if r1' > r2' then r2' else r1'
+  let r2 = round $ if r1' > r2' then r1' else r2'
+  -- let intr2 = fromIntegral r2-- fromIntegral r2
+  -- let intr1 = fromIntegral r1-- fromIntegral r1 -- r1 < r2
+  -- logW (lower w) ["updateIn2Box"] $ "updateIn2Box:intr2:" ++ (show intr2)
+  -- logW (lower w) ["updateIn2Box"] $ "updateIn2Box:intr1:" ++ (show intr1)  
   let (xb1,yb1) = xpi
   let (xb2,yb2) = ypi -- xpi < ypi ???????!!!!!!!!!!!!
   let (x0,y0) = p
@@ -550,49 +554,31 @@ updateIn2Box r1' r2' p f w = do
   let rd = rangeSize (x0,xb2) -- d
   let rs = rangeSize (yb1,y0) -- s
   let ra = rangeSize (xb1,x0) -- a
-  let vrw = rw - intr2
-  let vrd = rd - intr2
-  let vrs = rs - intr2
-  let vra = ra - intr2
-  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:vrs:" ++ (show vrs)
-  let xr2 = if vrd < 0 then xb2 else maybe (last (range (x0,xb2)) ) id ((range (x0,xb2)) List.!? intr2)
-  let ys2 = if vrs < 0 then yb1 else maybe (last (range (yb1,y0)) ) id ((List.reverse $ range (yb1,y0)) List.!? intr2)
-  let xl2 = if vra < 0 then xb1 else maybe (last (range (xb1,x0)) ) id ((List.reverse $ range (xb1,x0)) List.!? intr2)
-  let yw2 = if vrw < 0 then yb2 else maybe (last (range (y0,yb2)) ) id ((range (y0,yb2)) List.!? intr2)
-  -- sqrt (x + y) = r => x^2 + y^2 = r^2
-  -- 2*a^2 = r^2
-  -- a^2 = (r^2) / 2
-  -- a = sqrt ((r^2) / 2)
-  -- let a = round $ sqrt (fromIntegral $ quot (intr1^2) 2)
-  let a = intr1 
-  let vrw2 = rw - a
-  let vrd2 = rd - a
-  let vrs2 = rs - a
-  let vra2 = ra - a
-  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:vrs2:" ++ (show vrs2)
-  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:a:" ++ (show a)
-  let yw1 = if vrw2 < 0 then yb2 else maybe (last (range (y0,yb2))) id ((range (y0,yb2)) List.!? a)
-  let xr1 = if vrd2 < 0 then xb2 else maybe (last (range (x0,xb2))) id ((range (x0,xb2)) List.!? a)
-  let ys1 = if vrs2 < 0 then yb1 else maybe (last (range (yb1,y0))) id ((List.reverse $ range (yb1,y0)) List.!? a)
-  let xl1 = if vra2 < 0 then xb1 else maybe (last (range (xb1,x0))) id ((List.reverse $ range (xb1,x0)) List.!? a)
-  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:range:yb1,y0:" ++ (show $ P.length (range (yb1,y0)))
-  let dyyw = range (yw1,yw2)
-  let dxxd = range (xr1,xr2)
-  let dyys = range (ys2,ys1)
-  let dxxa = range (xl2,xl1)
-  logW (lower w) ["updateIn2Box"] $ "updateIn2Box:dyys:" ++ (show $ P.length dyys)
-  let pwwd = liftA2 (,) (range (x0,xr1)) dyyw
-  let pwwdd = liftA2 (,) dxxd dyyw
-  let pwdd = liftA2 (,) dxxd (range (y0,yw1))
-  let psdd = liftA2 (,) dxxd (range (ys1,y0))
-  let pssdd = liftA2 (,) dxxd dyys -- ????????
-  let pssd = liftA2 (,) (range (x0,xr1)) dyys
-  let pssa = liftA2 (,) (range (xl1,x0)) dyys
-  let pssaa = liftA2 (,) dxxa dyys
-  let psaa = liftA2 (,) dxxa (range (ys1,y0))
-  let pwaa = liftA2 (,) dxxa (range (y0,yw1))
-  let pwwaa = liftA2 (,) dxxa dyyw
-  let pwwa = liftA2 (,) (range (xl1,x0)) dyyw
+  let lrw = range (y0,yb2) -- w
+  let lrd = range (x0,xb2) -- d
+  let lrs = range (yb1,y0) -- s
+  let lra = range (xb1,x0) -- a
+  let lww = range (min yb2 (y0 + r1), min yb2 (y0 + r2)) -- w
+  let ldd = range (min (x0 + r1) xb2, min xb2 (x0 + r2)) -- d
+  let lss = range (max yb1 (y0 - r2), max yb1 (y0 - r1)) -- s
+  let laa = range (max xb1 (x0 - r2), max xb1 (x0 - r1)) -- a
+  -- --------
+  let lw = range (min yb2 y0, min yb2 (y0 + r1)) -- w
+  let ld = range (min x0 xb2, min xb2 (x0 + r1)) -- d
+  let ls = range (max yb1 (y0 - r1), max yb1 y0) -- s
+  let la = range (max xb1 (x0 - r1), max xb1 x0) -- a
+  let pwwd = liftA2 (,) lww ld
+  let pwwdd = liftA2 (,) lww ldd
+  let pwdd = liftA2 (,) lw ldd
+  let psdd = liftA2 (,) ls ldd
+  let pssdd = liftA2 (,) lss ldd -- ????????
+  let pssd = liftA2 (,) lss ld
+  let pssa = liftA2 (,) lss la
+  let pssaa = liftA2 (,) lss laa
+  let psaa = liftA2 (,) ls laa
+  let pwaa = liftA2 (,) lw laa
+  let pwwaa = liftA2 (,) lww laa
+  let pwwa = liftA2 (,) lww la
   logW (lower w) ["updateIn2Box"] $ "updateIn2Box:pssaa:length:" ++ (show $ P.length pssaa)
   let in2BS = pwwd ++ pwwdd ++ pwdd ++ psdd ++ pssdd ++ pssd ++ pssa ++ pssaa ++ psaa ++ pwaa ++ pwwaa ++ pwwa
   forConcurrently_ in2BS (\i-> do
@@ -672,13 +658,13 @@ updateIn2Radius ::
 updateIn2Radius r1 r2 p0@(x0,y0) f w = do
   logW (lower w) ["updateIn2Radius"] $ "updateIn2Radius:r1:" ++ (show r1)
   logW (lower w) ["updateIn2Radius"] $ "updateIn2Radius:r2:" ++ (show r2)
-  updateIn2Box r1 r2 p0
+  updateIn2Box (r1 / sqrt 2) (r2 * sqrt 2) p0
     (\ ip@(xi,yi) w -> do
       let rv = (xi - x0)^2 + (yi - y0)^2
       if (rv > (round r1)^2 ) && (rv < (round r2)^2 ) 
-        then do
-	  f ip w
-	else return ()
+      then do
+         f ip w
+      else return ()
     ) 
     w
 
@@ -927,18 +913,23 @@ readDendritPatern ::
    STM (DendritPatern i)
 readDendritPatern (x,y) r w = do
    let arr = coask w
-   ppi@(xpi,ypi) <- getBounds arr
-   foldlM (\ bn i -> 
-      if inRange ppi i 
+   ppi@(xpi@(x1,y1),ypi@(x2,y2)) <- getBounds arr
+   let lx = range (x-r,x+r)
+   let ly = range (y-r,y+r)
+   foldlM (\ bn i@(xi,yi) -> 
+      if x1 < xi && xi < x2 && y1 < yi && yi < y2
          then do
             a <- readArray arr i 
             let tvBool = a^.neiron
             b <- readTVar tvBool -- True
-            return $ bn <> (Set.singleton i)
-	 else return $ Set.empty
-      ) Set.empty (range ((x-r,y-r), (x+r,y+r)) )
+	    logWSTM (lower w) ["readDendritPatern"] $ "readDendritPatern:neiron:" ++ (show $ b)
+	    if b then return $ Set.union bn (Set.singleton i)
+	       else return $ bn
+	 else return bn
+      ) Set.empty (liftA2 (,) lx ly )
 
 midleDP :: (Num i, Ord i, Integral i, Bounded i) => DendritPatern i -> (i,i)
+midleDP dp | Set.null dp = (0,0)
 midleDP dp = f $ Fold.fold $ fmap (\(x,y)-> (Max x,Min x, Max y, Min y)) $ Set.toList dp
    where
       f (Max maxX,Min minX,Max maxY,Min minY) = ((div (maxX - minX) (fromIntegral 2)) + minX ,(div (maxY - minY) (fromIntegral 2)) + minY )
@@ -967,6 +958,7 @@ updateDendritList pg ws lpr lldp w = do
       updateDedritSpace pg ws (fmap snd ldp) (\ wn -> do
          mapConcurrently (\(p,r)-> do
             dpn <- atomically $ readDendritPatern p r w
+	    logW (lower w) ["updateDendritList"] $ "updateDendritList:sizeDP:" ++ (show $ Set.size dpn)
 	    logW (lower w) ["updateDendritList"] "Post readDendritPatern"
             return (dpn,(p,r))
 	    ) lpr 
@@ -1149,10 +1141,10 @@ showWaveRDP axdes w = do
    let p1 = (\(x,y)->(x+v,y+v)) (lowerIndex axdes)
    let p2 = (\(x,y)->(x-v,y-v)) (uperIndex axdes)
    -- dp1 <- generateDendritPaternIO p1 (fromIntegral $ v) (trayGeneration axdes) w
-   -- waveNeironTrue (proxyG axdes) 3 p1 w
+   waveNeironTrue (proxyG axdes) 3 p1 w
    --updateIn2RNeiron (proxyG axdes) 9 12 p1 w
    --updateIn2RNeiron (proxyG axdes) 12 15 p1 w
-   updateIn2RNeiron (proxyG axdes) 15 18 p1 w
+   -- updateIn2RNeiron (proxyG axdes) 15 50 p1 w
    -- atomically $ writeDendritPatern dp1 w
    -- updateIn2RUpAxogenesPoint (proxyG axdes) 0 11 p1 w 
    -- updateIn2RUpAxogenesPoint (proxyG axdes) 0 22 p1 w
