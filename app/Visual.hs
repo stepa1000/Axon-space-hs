@@ -98,7 +98,7 @@ mainPingPong :: IO ()
 mainPingPong = do
    print "Init pre"
    (axdes,w) <- initializationADendritBD 
-      ["readDendritPatern"] "./log" -- initAxogenesPoint
+      ["pingDendrit"] "./log" -- initAxogenesPoint
    print "Init post"
    tvendDF <- newTVarIO False
    tvnowPic <- newTVarIO $ Pictures []
@@ -113,7 +113,7 @@ mainPingPong = do
       (\_-> return ())
    where
       fPP tvDF tvP axdes w = do
-         pbf <- pingPongDendrit axdes w
+         pbf <- pingDendrit axdes w
          -- showGenerationDP axdes w -- pingPongDendrit axdes w
 	 print "Post pingPongDendrit"
          atomically $ writeTVar tvDF True

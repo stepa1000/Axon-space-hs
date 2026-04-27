@@ -514,6 +514,27 @@ clearAxoginesPoint pg (p :: (i,i)) w = do
 	) mapA
       return ()
 
+allclearAxoginesPoint :: 
+  ( CxtAxon i w a g 
+  ) =>
+  Proxy g  ->
+  W.AdjointT
+    (AdjArrayL (i,i) a)
+    (AdjArrayR (i,i) a)
+    w
+    b
+  -> IO ()
+allclearAxoginesPoint pg w = do
+  let arr = coask w
+  ppi@(xpi,ypi) <- getBounds arr
+  let allN = range ppi
+  mapConcurrently (\i->do
+    atomically $ clearAxoginesPoint pg i w
+    return ()
+    ) allN
+  return ()
+
+
 updateIn2Box ::
   ( Comonad w-- CxtAxon i w a g
   , Logger w
@@ -809,7 +830,8 @@ updateDedritSpace pg s li f w = do
     )
   -- waveInterval s i updateIn2RUpAxogenesPoint w
   c <- f w
-  waveInterval s (head li) (updateIn2RUpClearAxoginesPoint pg) w -- all array to false maybe ?????????!!!!!!!!!!!
+  allclearAxoginesPoint pg w
+  -- waveInterval s (head li) (updateIn2RUpClearAxoginesPoint pg) w -- all array to false maybe ?????????!!!!!!!!!!!
   return c
    
 upIn2RUpAxoginesPWave pg rA p0 w = waveInterval rA p0 (updateIn2RUpAxogenesPoint pg)
@@ -1093,6 +1115,10 @@ distancePatern dp1 dp2 = x
    where
       (Sum x) = foldMap (\p-> if Set.member p dp2 then Sum 1 else Sum 0) dp1
 
+similar dp2 dp2n = (realToFrac $ distancePatern dp2 dp2n) / (realToFrac $ max (Set.size dp2) (Set.size dp2n)) 
+
+-- visual tests
+
 pingPongDendrit :: InitWIODPMK1 StdGen w i a => 
    AxonDendritSetting StdGen a i -> 
    W.AdjointT
@@ -1112,7 +1138,36 @@ pingPongDendrit axdes w = do
    logW (lower w) ["pingPongDendrit"] $ "pingPongDendrit:sizeDPOut:" ++ (show $ Set.size dp2)
    [(dp1N,_)]<- updateADendrit axdes [(p1,v)] [[dp2]] w
    return (dp1N == dp1, (realToFrac $ distancePatern dp1N dp1) / (realToFrac $ max (Set.size dp1N) (Set.size dp1)) )
-   
+
+
+pingDendrit :: InitWIODPMK1 StdGen w i a => 
+   AxonDendritSetting StdGen a i -> 
+   W.AdjointT
+           (AdjArrayL (i,i) a)
+           (AdjArrayR (i,i) a)
+           w
+           () ->
+   IO ()
+pingDendrit axdes w = do
+   let v = fromIntegral $ lengthPattern axdes
+   let p1 = (\(x,y)->(x+v,y+v)) (lowerIndex axdes)
+   let p2 = (\(x,y)->(x-v,y-v)) (uperIndex axdes)
+   f v axdes w p1 p2
+   where
+      f v axdes w p1 p2 = do
+         dp1 <- generateDendritPaternIO p1 (fromIntegral $ v) (trayGeneration axdes) w
+         logW (lower w) ["pingDendrit","Debug"] "Post generateDendritPaternIO" -- size
+         logW (lower w) ["pingDendrit","Debug"] $ "pingPongDendrit:sizeDP:" ++ (show $ Set.size dp1)
+         [(dp2,_)]<- updateADendrit axdes [(p2,v)] [[dp1]] w
+         logW (lower w) ["pingDendrit","Debug"] $ "pingPongDendrit:sizeDPOut:" ++ (show $ Set.size dp2)
+         [(dp1N,_)]<- updateADendrit axdes [(p1,v)] [[dp2]] w
+         logW (lower w) ["pingDendrit"] $ "invertable:" ++ (show (dp1N == dp1, (realToFrac $ distancePatern dp1N dp1) / (realToFrac $ max (Set.size dp1N) (Set.size dp1)) ))
+         [(dp2n,_)]<- updateADendrit axdes [(p2,v)] [[dp1]] w
+	 logW (lower w) ["pingDendrit"] $ "identity wave:" ++ (show (dp2 == dp2n, (realToFrac $ distancePatern dp2 dp2n) / (realToFrac $ max (Set.size dp2) (Set.size dp2n)) ))
+         f v axdes w p1 p2
+         
+
+
 showGenerationDP :: InitWIODPMK1 StdGen w i a => 
    AxonDendritSetting StdGen a i -> 
    W.AdjointT
