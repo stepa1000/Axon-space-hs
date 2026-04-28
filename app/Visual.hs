@@ -113,7 +113,7 @@ mainPingPong = do
       (\_-> return ())
    where
       fPP tvDF tvP axdes w = do
-         pbf <- pingDendrit axdes w
+         pbf <- powerDendrit axdes w
          -- showGenerationDP axdes w -- pingPongDendrit axdes w
 	 print "Post pingPongDendrit"
          atomically $ writeTVar tvDF True

@@ -42,6 +42,7 @@ import Data.Monoid
 import Data.Semigroup
 import Control.Applicative
 import Data.Maybe
+import Data.Hashable
 
 import Data.Axon.Base.Types
 import Data.Logger
@@ -889,10 +890,10 @@ generateDendritPaternIO ::
       b ->
    IO (DendritPatern i)
 generateDendritPaternIO p r k w = do
-   std <- getStdGen
+   std <- newStdGen
    tvstd <- newTVarIO std
    atomically $ generateDendritPatern tvstd p r k w
-	
+
 writeDendritPatern :: 
    ( Comonad w-- CxtAxon i w a g
    , Ix i
@@ -1023,6 +1024,7 @@ type InitWIODPMK1 g w i a =
    , HasMapVarT (i,i) a
    , Bounded i
    , Logger w
+   , Hashable i
    )
 
 data AxonDendritSetting g a i = AxonDendritSetting 
@@ -1139,7 +1141,6 @@ pingPongDendrit axdes w = do
    [(dp1N,_)]<- updateADendrit axdes [(p1,v)] [[dp2]] w
    return (dp1N == dp1, (realToFrac $ distancePatern dp1N dp1) / (realToFrac $ max (Set.size dp1N) (Set.size dp1)) )
 
-
 pingDendrit :: InitWIODPMK1 StdGen w i a => 
    AxonDendritSetting StdGen a i -> 
    W.AdjointT
@@ -1152,7 +1153,9 @@ pingDendrit axdes w = do
    let v = fromIntegral $ lengthPattern axdes
    let p1 = (\(x,y)->(x+v,y+v)) (lowerIndex axdes)
    let p2 = (\(x,y)->(x-v,y-v)) (uperIndex axdes)
-   f v axdes w p1 p2
+   -- thmIn <- newTVarIO HMap.empty
+   -- thmOut <- newTVarIO HMap.empty
+   f v axdes w p1 p2 -- thmIn thmOut
    where
       f v axdes w p1 p2 = do
          dp1 <- generateDendritPaternIO p1 (fromIntegral $ v) (trayGeneration axdes) w
@@ -1165,7 +1168,79 @@ pingDendrit axdes w = do
          [(dp2n,_)]<- updateADendrit axdes [(p2,v)] [[dp1]] w
 	 logW (lower w) ["pingDendrit"] $ "identity wave:" ++ (show (dp2 == dp2n, (realToFrac $ distancePatern dp2 dp2n) / (realToFrac $ max (Set.size dp2) (Set.size dp2n)) ))
          f v axdes w p1 p2
-         
+
+powerDendrit :: InitWIODPMK1 StdGen w i a => 
+   AxonDendritSetting StdGen a i -> 
+   W.AdjointT
+           (AdjArrayL (i,i) a)
+           (AdjArrayR (i,i) a)
+           w
+           () ->
+   IO ()
+powerDendrit axdes w = do
+   let v = fromIntegral $ lengthPattern axdes
+   let p1 = (\(x,y)->(x+v,y+v)) (lowerIndex axdes)
+   let p2 = (\(x,y)->(x-v,y-v)) (uperIndex axdes)
+   thmIn <- newTVarIO HMap.empty
+   --thmOut <- newTVarIO HMap.empty
+   f v axdes w p1 p2 thmIn --thmOut
+   where
+      f v axdes w p1 p2 thmIn = do
+         dp1 <- generateDendritPaternIO p1 (fromIntegral $ v) (trayGeneration axdes) w
+         logW (lower w) ["pingDendrit","Debug"] "Post generateDendritPaternIO" -- size
+         logW (lower w) ["pingDendrit","Debug"] $ "pingPongDendrit:sizeDP:" ++ (show $ Set.size dp1)
+         [(dp2,_)]<- updateADendrit axdes [(p2,v)] [[dp1]] w
+         logW (lower w) ["pingDendrit","Debug"] $ "pingPongDendrit:sizeDPOut:" ++ (show $ Set.size dp2)
+         --[(dp2n,_)]<- updateADendrit axdes [(p2,v)] [[dp1]] w
+	 --logW (lower w) ["pingDendrit"] $ "identity wave:" ++ (show (dp2 == dp2n, (realToFrac $ distancePatern dp2 dp2n) / (realToFrac $ max (Set.size dp2) (Set.size dp2n)) ))
+         hmIn <- readTVarIO thmIn -- dp1
+	 --hmOut <- readTVarIO thmOut
+         let hmIn2 = gHmIn hmIn dp1 dp2
+	 --let hmOut = gHmOut hmOut dp1 dp2 dp2n
+	 atomically $ writeTVar thmIn hmIn2
+	 lskmse <- mapM (\ ((k1,e1),(k2,e2)) -> do
+	    let sk = similar k1 k2 
+	    logW (lower w) ["pingDendrit","Debug"] $ "similar key:" ++ (show sk)
+	    lse <- mapM (\ (dpe1,dpe2) -> do
+	       let se = similar dpe1 dpe2
+	       logW (lower w) ["pingDendrit","Debug"] $ "similar element:" ++ (show se)
+	       return se
+	       ) $ (do
+	       l1 <- HSet.toList e1
+	       l2 <- HSet.toList e2
+	       return (l1,l2)
+	       )
+	    let midSE = (getSum $ Fold.fold $ fmap Sum lse) / (realToFrac $ P.length lse)
+            logW (lower w) ["pingDendrit","Debub"] $ "midle similar elements:" ++ (show midSE)
+	    return (sk, midSE )
+	    ) $ (do
+	       l1@(k1,_) <- HMap.toList hmIn2
+	       l2@(k2,_) <- HMap.toList hmIn2
+	       if k1 == k2 then []
+	          else return (l1,l2)
+	       )
+	 let (lsk,lmse) = P.unzip lskmse
+         logW (lower w) ["pingDendrit"] $ "midle similar keys:" ++ 
+	    (show $ (getSum $ Fold.fold $ fmap Sum lsk) / (realToFrac $ P.length lsk))
+	 logW (lower w) ["pingDendrit"] $ "midle similar ALL elements:" ++ 
+	    (show $ (getSum $ Fold.fold $ fmap Sum lmse) / (realToFrac $ P.length lmse))
+	 logW (lower w) ["pingDendrit"] $ "Size keys:" ++ (show $ HMap.size hmIn2)
+	 logW (lower w) ["pingDendrit"] $ "Minimum similar ALL elements:" ++ 
+	    (show $ Fold.foldl (\x y -> if x < y then x else y) 1 lmse)
+	 let sortLMSE = List.sort lmse
+	 let msort = maybe 0 id $ lmse List.!? (div (P.length lmse) 2)
+         logW (lower w) ["pingDendrit"] $ "Midle sorted element:" ++ (show msort)
+         --let in75 = filter sortLMSE
+         f v axdes w p1 p2 thmIn
+      gHmIn hm k e1 = HMap.alter (\me -> 
+         (me >>= (\e-> do
+	    guard $ Set.size e1 /= 0
+	    return $ HSet.insert e1 e
+	    )) <|> 
+         ( do 
+	   guard $ Set.size e1 /= 0
+	   return $ HSet.insert e1 HSet.empty )
+	 ) k hm
 
 
 showGenerationDP :: InitWIODPMK1 StdGen w i a => 
