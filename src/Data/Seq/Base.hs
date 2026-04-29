@@ -5,7 +5,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Data.Axon.Base.Types where
+module Data.Seq.Base where
 
 import Prelude as P
 
@@ -38,7 +38,7 @@ import Data.UUID
 import Data.Sequence as Seq
 import Data.Monoid
 import Data.Hashable
-import Control.Monad.LogicState
+-- import Control.Monad.LogicState
 
 import Data.Axon.Base.Types
 
@@ -106,64 +106,77 @@ viewMinD sa ns = let
       (1,Seq.Empty) fmap (\k -> (distanceSeq sa k, k) ) ksAll
    in if t < t2 then kIn else k2
 
-data SuggestionHandler bs a = SuggestionHandler
+type MaxContext = Int
+
+type MaxError = Float 
+
+data SuggestionHandler a = SuggestionHandler
    { inputA :: IO a
    , outputA :: a -> IO ()
+   , suggestionView :: Seq a -> IO ()
    , currentContext :: TVar (Seq a)
-   , maxContext :: Int
-   , zeroBs :: bs
+   , currentNextSeq :: TVar (NextSeq a)
+   , currentSuggestion :: TVar (Seq a)
+   , maxContext :: MaxContext
+   , maxError :: MaxError
    , shGeneralRadius :: GeneralRadius
    , shRadiusPattern :: RadiusPattern
    }
-
+{-
 type NotSuggestion gs bs m = LogicStateT gs bs m ()
 
 class Suggstion gs bs a where
    lNextSeq :: Lens' gs (NextSeq a)
    lCurrentSuggestion :: Lens' bs (Seq a)
-
-zeroSuggestion :: (MonadIO m, Suggstion gs bs a) => 
+-}
+zeroSuggestion :: (MonadIO m) => 
    SuggestionHandler a -> m () -- LogicStateT gs bs m () -- (NotSuggestion gs bs m)
 zeroSuggestion sh = do
    -- notS <- once $ backtrackWithRoll (\ _ _ -> return $ zeroBs sh) $ return () 
-   na <- once $ liftIO $ inputA sh
-   once $ liftIO $ atomically $ modifyTVar (currentContext sh) (:|> na)
-   once $ liftIO $ atomically $ modifyTVar (currentContext sh) 
+   na <- liftIO $ inputA sh
+   liftIO $ atomically $ modifyTVar (currentContext sh) (:|> na)
+   liftIO $ atomically $ modifyTVar (currentContext sh) 
       (\s-> if Seq.length > (maxContext sh) then f $ viewl s else s)
-   (gs,bs) <- get
-   let ns = gs^.lNextSeq
+   -- (gs,bs) <- get
+   ns <- liftIO $ readTVarIO (currentNextSeq sh)
    if not $ HMap.null ns
       then 
          ccn <- liftIO $ readTVarIO (currentContext sh)
          let cs = viewMinD ccn ns
          let mnextA = cs Seq.!? (Seq.length ccn)
-         mapM (\nextA-> once $ liftIO $ (outputA sh) nextA) mnextA
-	 put (gs, set lCurrentSuggestion cs bs)
+         mapM (\nextA-> liftIO $ (outputA sh) nextA) mnextA
+	 liftIO $ atomically $ writeTVar (currentSuggestion sh) cs 
 	 return ()
       else return ()
    where
       f (_ :< s) = s
       f _ = Seq.Empty
 
-type LerningSuggestion gs bs m = LogicStateT gs bs m ()
+-- type LerningSuggestion gs bs m = LogicStateT gs bs m ()
 
-lerningSuggestion :: (MonadIO m, Suggstion gs bs a) => 
-   SuggestionHandler a -> NotSuggestion gs bs m -> LogicStateT gs bs m () -- (LerningSuggestion gs bs m)
-lerningSuggestion sh ns = do
+lerningSuggestion :: (MonadIO m) => 
+   SuggestionHandler a -> m () -- (LerningSuggestion gs bs m)
+lerningSuggestion sh = do
    -- lS <- once $ backtrack $ return () 
-   ccn <- once $ liftIO $ readTVarIO (currentContext sh)
-   if Seq.length >= (maxContext sh) 
+   ccn <- liftIO $ readTVarIO (currentContext sh)
+   csn <- liftIO $ readTVarIO (currentSuggestion sh)
+   if Seq.length >= (maxContext sh) && distanceSeq ccn (Seq.take (maxContext sh) csn) < (maxError sh)
       then do
          let nns = generalPattern (shGeneralRadius sh) $ generationPattern (shRadiusPattern sh) ccn
-         (gs,bs) <- get
-         let ns = gs^.lNextSeq
-         put ( set lNextSeq 
-	          (ns { generalPattern = HMap.unionWith (HSet.union) (generalPattern ns) (generalPattern nns)
+         liftIO $ atomically $ modifyTVar (currentContext sh) (\ns ->
+	          ns { generalPattern = HMap.unionWith (HSet.union) (generalPattern ns) (generalPattern nns)
 		      , uneqPattern = (HSet.union) (uneqPattern ns) (uneqPattern nns)
 		      }
-		  ) gs
-	     , bs)
-         return lS
+		  )
+         return ()
       else do
-         ns
-	 return lS
+	 return ()
+
+updateZLSuggestion :: (MonadIO m) => 
+   SuggestionHandler a -> m ()
+updateZLSuggestion sh = do
+   zeroSuggestion sh
+   csn <- liftIO $ readTVarIO (currentSuggestion sh)
+   (suggestionView sh) csn
+   lerningSuggestion sh
+   updateZLSuggestion sh
