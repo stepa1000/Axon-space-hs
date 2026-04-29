@@ -38,5 +38,132 @@ import Data.UUID
 import Data.Sequence as Seq
 import Data.Monoid
 import Data.Hashable
+import Control.Monad.LogicState
 
 import Data.Axon.Base.Types
+
+type RadiusPattern = Int
+
+generationRadiusPattern :: (Eq a, Hashable a) =>
+   RadiusPattern -> a -> Seq a -> HashSet (Seq a)
+generationRadiusPattern rp a sa = let
+   si = Seq.iterateN (Seq.length sa) (+ 1) 0
+   sai = Seq.filter (\(x,y)->x == a) $ Seq.zip sa si
+   in Fold.fold $ mapM (\(x,y)-> let 
+     li = [y-rp, y-rp + 1 .. y + rp]
+     in HSet.singleton $ Seq.fromList $ catMaybes $ mapM (\i-> sa Seq.!? i ) li
+     ) sai
+
+generationPatternBrackets :: (Eq a, Hashable a) =>
+   a -> Seq a -> HashSet (Seq a)
+generationRadiusPattern rp a sa = let
+   si = Seq.iterateN (Seq.length sa) (+ 1) 0
+   sai = Seq.filter (\(x,y)->x == a) $ Seq.zip sa si
+   saif = f sai
+   f (a1 :<| (a2 :<| s)) = (snd a1, snd a2) :<| (f $ a2 :<| s)
+   f _ = Seq.Empty
+   in Fold.fold $ mapM (\(x,y)-> let 
+     li = [x, x + 1, .. y]
+     in HSet.singleton $ Seq.fromList $ catMaybes $ mapM (\i-> sa Seq.!? i ) li
+     ) saif
+
+generationPattern :: (Eq a, Hashable a) =>
+   RadiusPattern -> Seq a -> HashSet (Seq a)
+generationPattern pr sa = Fold.foldl1 (Seq.union) $ mapM (\a-> let 
+   p1 = generationRadiusPattern pr a sa
+   p2 = generationRadiusPattern a sa
+   in HSet.union p1 p2) sa
+
+generalPattern :: GeneralRadius -> HashSet (Seq a) -> NextSeq a
+generalPattern gr hs = let 
+   (seq, seqIn ,seqOut ) = generalizationPattern gr hs
+   hs = if not $ HSet.null seqIn then generalPattern gr seqOut
+      else NextSeq (HMap.empty) ( seqOut)
+   in hs {generalPattern = HMap.insert seq seqIn (generalPattern hs)}
+
+data NextSeq a = NextSeq
+   { generalPattern :: HashMap (Seq a) (HashSet (Seq a))
+   , uneqPattern :: HashSet (Seq a))
+   }
+{-
+viewA :: a -> NextSeq a -> (HashMap (Seq a) (HashSet (Seq a)), HashSet (Seq a)) )
+viewA a ns = undefined
+
+viewSeqA :: Seq a -> NextSeq a -> (HashMap (Seq a) (HashSet (Seq a)), HashSet (Seq a))
+viewSeqA a ns = undefined
+-}
+viewMinD :: Seq a -> NextSeq a -> (Seq a)
+viewMinD sa ns = let
+   km = HMap.keys $ generalPattern ns
+   ks = HSet.toList $ uneqPattern ns
+   (t,kIn) = Fold.foldl 
+      (\ (x1,y1) (x2,y2) -> if x1 < x2 then (x1,y1) else (x2,y2)) 
+      (1,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) km
+   ksIn = HSet.toList $ (generalPattern ns) HMap.!? kIn
+   ksAll == ks ++ ksIn
+   (t2,k2) = Fold.foldl 
+      (\ (x1,y1) (x2,y2) -> if x1 < x2 then (x1,y1) else (x2,y2)) 
+      (1,Seq.Empty) fmap (\k -> (distanceSeq sa k, k) ) ksAll
+   in if t < t2 then kIn else k2
+
+data SuggestionHandler bs a = SuggestionHandler
+   { inputA :: IO a
+   , outputA :: a -> IO ()
+   , currentContext :: TVar (Seq a)
+   , maxContext :: Int
+   , zeroBs :: bs
+   , shGeneralRadius :: GeneralRadius
+   , shRadiusPattern :: RadiusPattern
+   }
+
+type NotSuggestion gs bs m = LogicStateT gs bs m ()
+
+class Suggstion gs bs a where
+   lNextSeq :: Lens' gs (NextSeq a)
+   lCurrentSuggestion :: Lens' bs (Seq a)
+
+zeroSuggestion :: (MonadIO m, Suggstion gs bs a) => 
+   SuggestionHandler a -> m () -- LogicStateT gs bs m () -- (NotSuggestion gs bs m)
+zeroSuggestion sh = do
+   -- notS <- once $ backtrackWithRoll (\ _ _ -> return $ zeroBs sh) $ return () 
+   na <- once $ liftIO $ inputA sh
+   once $ liftIO $ atomically $ modifyTVar (currentContext sh) (:|> na)
+   once $ liftIO $ atomically $ modifyTVar (currentContext sh) 
+      (\s-> if Seq.length > (maxContext sh) then f $ viewl s else s)
+   (gs,bs) <- get
+   let ns = gs^.lNextSeq
+   if not $ HMap.null ns
+      then 
+         ccn <- liftIO $ readTVarIO (currentContext sh)
+         let cs = viewMinD ccn ns
+         let mnextA = cs Seq.!? (Seq.length ccn)
+         mapM (\nextA-> once $ liftIO $ (outputA sh) nextA) mnextA
+	 put (gs, set lCurrentSuggestion cs bs)
+	 return ()
+      else return ()
+   where
+      f (_ :< s) = s
+      f _ = Seq.Empty
+
+type LerningSuggestion gs bs m = LogicStateT gs bs m ()
+
+lerningSuggestion :: (MonadIO m, Suggstion gs bs a) => 
+   SuggestionHandler a -> NotSuggestion gs bs m -> LogicStateT gs bs m () -- (LerningSuggestion gs bs m)
+lerningSuggestion sh ns = do
+   -- lS <- once $ backtrack $ return () 
+   ccn <- once $ liftIO $ readTVarIO (currentContext sh)
+   if Seq.length >= (maxContext sh) 
+      then do
+         let nns = generalPattern (shGeneralRadius sh) $ generationPattern (shRadiusPattern sh) ccn
+         (gs,bs) <- get
+         let ns = gs^.lNextSeq
+         put ( set lNextSeq 
+	          (ns { generalPattern = HMap.unionWith (HSet.union) (generalPattern ns) (generalPattern nns)
+		      , uneqPattern = (HSet.union) (uneqPattern ns) (uneqPattern nns)
+		      }
+		  ) gs
+	     , bs)
+         return lS
+      else do
+         ns
+	 return lS
