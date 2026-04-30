@@ -48,7 +48,7 @@ initSuggestionHandlerChar ::
    MaxError -> 
    GeneralRadius -> 
    RadiusPattern -> 
-   SuggestionHandler Char
+   IO (SuggestionHandler Char)
 initSuggestionHandlerChar mc me gr rp = do
    tstr <- newTVarIO ""
    tcc <- newTVarIO Seq.Empty
@@ -75,14 +75,15 @@ initSuggestionHandlerChar mc me gr rp = do
       rp
    where
       g (c:str) c2 = do
-         print $ "Eq char:" ++ (show $ c == c2) ++ ":C1:" ++ (show c) ++ ":C2:" (show c2) ++ "\n"
+         print $ "Eq char:" ++ (show $ c == c2) ++ ":C1:" ++ (show c) ++ ":C2:" ++ (show c2) ++ "\n"
       g _ c = do
          putStrLn "Null string"
-      f (c:str) tstr= do
-         atmically $ writeTVar tstr str
+      f :: String -> TVar String -> IO Char
+      f (c:str) tstr = do
+         atomically $ writeTVar tstr str
          return c
-      f _ _ = do
+      f _ tstr = do
          putStrLn "Write string line:"
          str <- getLine
-	 f str
+	 f str tstr
 

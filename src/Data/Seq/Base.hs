@@ -70,12 +70,12 @@ generationPatternBrackets a sa = let
 
 generationPattern :: (Eq a, Hashable a) =>
    RadiusPattern -> Seq a -> HashSet (Seq a)
-generationPattern pr sa = Fold.foldl1 (HSet.union) $ fmap (\a-> let 
+generationPattern pr sa = Fold.foldl (HSet.union) (HSet.empty) $ fmap (\a-> let 
    p1 = generationRadiusPattern pr a sa
    p2 = generationPatternBrackets a sa
    in HSet.union p1 p2) sa
 
-generalPattern :: GeneralRadius -> HashSet (Seq a) -> NextSeq a
+generalPattern :: Hashable a => GeneralRadius -> HashSet (Seq a) -> NextSeq a
 generalPattern gr hs = let 
    (seq, seqIn ,seqOut ) = generalizationPattern gr hs
    ns = if not $ HSet.null seqIn then generalPattern gr seqOut
@@ -95,19 +95,27 @@ viewA a ns = undefined
 viewSeqA :: Seq a -> NextSeq a -> (HashMap (Seq a) (HashSet (Seq a)), HashSet (Seq a))
 viewSeqA a ns = undefined
 -}
-viewMinD :: Seq a -> NextSeq a -> (Seq a)
-viewMinD sa ns = let
+
+type Distance = Float
+
+viewMinD' :: (Eq a, Hashable a) => Seq a -> NextSeq a -> (Distance, Seq a)
+viewMinD' sa ns = let
    km = HMap.keys $ generalPatternNS ns
    ks = HSet.toList $ uneqPattern ns
    (t,kIn) = Fold.foldl 
-      (\ (x1,y1) (x2,y2) -> if x1 < x2 then (x1,y1) else (x2,y2)) 
-      (1,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) km
+      (\ (x1,y1) (x2,y2) -> if x1 > x2 then (x1,y1) else (x2,y2)) 
+      (0,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) km
    ksIn = maybe [] id $ fmap HSet.toList $ (generalPatternNS ns) HMap.!? kIn
    ksAll = ks ++ ksIn
    (t2,k2) = Fold.foldl 
-      (\ (x1,y1) (x2,y2) -> if x1 < x2 then (x1,y1) else (x2,y2)) 
-      (1,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) ksAll
+      (\ (x1,y1) (x2,y2) -> if x1 > x2 then (x1,y1) else (x2,y2)) 
+      (0,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) ksAll
    in if t < t2 then kIn else k2
+
+viewMinD x y = snd $ viewMinD' x y
+
+viewTail :: Seq a -> NextSeq a -> Seq (Distance, Seq a)
+viewTail sa ns = fmap (\s-> viewMinD' s ns) $ Seq.tails sa
 
 type MaxContext = Int
 
@@ -132,17 +140,17 @@ class Suggstion gs bs a where
    lNextSeq :: Lens' gs (NextSeq a)
    lCurrentSuggestion :: Lens' bs (Seq a)
 -}
-zeroSuggestion :: (MonadIO m) => 
+zeroSuggestion :: (MonadIO m, Eq a, Hashable a) => 
    SuggestionHandler a -> m () -- LogicStateT gs bs m () -- (NotSuggestion gs bs m)
 zeroSuggestion sh = do
    -- notS <- once $ backtrackWithRoll (\ _ _ -> return $ zeroBs sh) $ return () 
    na <- liftIO $ inputA sh
    liftIO $ atomically $ modifyTVar (currentContext sh) (:|> na)
    liftIO $ atomically $ modifyTVar (currentContext sh) 
-      (\s-> if Seq.length > (maxContext sh) then f $ viewl s else s)
+      (\s-> if Seq.length s > (maxContext sh) then f $ viewl s else s)
    -- (gs,bs) <- get
    ns <- liftIO $ readTVarIO (currentNextSeq sh)
-   if not $ HMap.null ns
+   if not $ HMap.null $ generalPatternNS ns
       then do 
          ccn <- liftIO $ readTVarIO (currentContext sh)
          let cs = viewMinD ccn ns
@@ -157,16 +165,16 @@ zeroSuggestion sh = do
 
 -- type LerningSuggestion gs bs m = LogicStateT gs bs m ()
 
-lerningSuggestion :: (MonadIO m) => 
+lerningSuggestion :: (MonadIO m, Eq a, Hashable a) => 
    SuggestionHandler a -> m () -- (LerningSuggestion gs bs m)
 lerningSuggestion sh = do
    -- lS <- once $ backtrack $ return () 
    ccn <- liftIO $ readTVarIO (currentContext sh)
    csn <- liftIO $ readTVarIO (currentSuggestion sh)
-   if Seq.length >= (maxContext sh) && distanceSeq ccn (Seq.take (maxContext sh) csn) < (maxError sh)
+   if Seq.length ccn >= (maxContext sh) && distanceSeq ccn (Seq.take (maxContext sh) csn) < (maxError sh)
       then do
          let nns = generalPattern (shGeneralRadius sh) $ generationPattern (shRadiusPattern sh) ccn
-         liftIO $ atomically $ modifyTVar (currentContext sh) (\ns ->
+         liftIO $ atomically $ modifyTVar (currentNextSeq sh) (\ns ->
 	          ns { generalPatternNS = HMap.unionWith (HSet.union) (generalPatternNS ns) (generalPatternNS nns)
 		      , uneqPattern = (HSet.union) (uneqPattern ns) (uneqPattern nns)
 		      }
@@ -175,11 +183,11 @@ lerningSuggestion sh = do
       else do
 	 return ()
 
-updateZLSuggestion :: (MonadIO m) => 
+updateZLSuggestion :: (MonadIO m, Eq a, Hashable a) => 
    SuggestionHandler a -> m ()
 updateZLSuggestion sh = do
    zeroSuggestion sh
    csn <- liftIO $ readTVarIO (currentSuggestion sh)
-   (suggestionView sh) csn
+   liftIO $ (suggestionView sh) csn
    lerningSuggestion sh
    updateZLSuggestion sh

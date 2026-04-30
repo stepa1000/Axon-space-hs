@@ -59,7 +59,7 @@ generalizationPattern gr hsslm = (gslm,shsseqLM,zhsslm)
    where
       shsseqLM = HSet.filter (\slm-> (distanceSeq slm gslm) > gr ) hsslm
       zhsslm = HSet.filter (\slm-> not $ (distanceSeq slm gslm) > gr ) hsslm 
-      (_,gslm) = foldl1 (\ (d1,slm1) (d2,slm2) -> if d1 > d2 then (d1,slm1) else (d2,slm2)) ldslm
+      (_,gslm) = Fold.foldl (\ (d1,slm1) (d2,slm2) -> if d1 > d2 then (d1,slm1) else (d2,slm2)) (0, Seq.Empty) ldslm
       ldslm = HSet.map (\slm1-> let
          ad = foldl1 (+) $ HSet.map (\slm2 -> distanceSeq slm1 slm2) hsslm
 	 in (ad / (realToFrac $ HSet.size hsslm), slm1)) hsslm

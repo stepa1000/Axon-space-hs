@@ -54,5 +54,5 @@ import Data.Seq.Char
 
 mainChar :: IO ()
 mainChar = do
-   sh <- initSuggestionHandlerChar 6 3 0.80 3
+   sh <- initSuggestionHandlerChar 6 0.1 0.80 3
    updateZLSuggestion sh
