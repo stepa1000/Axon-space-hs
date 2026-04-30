@@ -51,20 +51,22 @@ initSuggestionHandlerChar ::
    IO (SuggestionHandler Char)
 initSuggestionHandlerChar mc me gr rp = do
    tstr <- newTVarIO ""
+   tstrSug <- newTVarIO ""
    tcc <- newTVarIO Seq.Empty
    tcns <- newTVarIO emptyNextSeq
    tcs <- newTVarIO Seq.Empty
    return $ SuggestionHandler
       (do
-         str <- readTVarIO tstr
-         f str tstr
+         str <- readTVarIO tstr		 
+         f str tstr tstrSug
 	 )
       (\c-> do
          str <- readTVarIO tstr
-         g str c
+         g str c tstrSug
       )
       (\ seqC -> do
-         print $ "Current suggestion:" ++ (show seqC)
+         -- print $ "Current suggestion:" ++ (show seqC)
+	 return ()
 	 )
       tcc
       tcns
@@ -74,16 +76,20 @@ initSuggestionHandlerChar mc me gr rp = do
       gr
       rp
    where
-      g (c:str) c2 = do
-         print $ "Eq char:" ++ (show $ c == c2) ++ ":C1:" ++ (show c) ++ ":C2:" ++ (show c2) ++ "\n"
-      g _ c = do
+      g (c:str) c2 tstrSug = do
+         strSug <- readTVarIO tstrSug
+	 atomically $ writeTVar tstrSug (strSug ++ [c2])
+         putStrLn $ "Suggestion:" ++ strSug
+         -- print $ "Eq char:" ++ (show $ c == c2) ++ ":C1:" ++ (show c) ++ ":C2:" ++ (show c2) ++ "\n"
+      g _ c tstrSug = do
          putStrLn "Null string"
-      f :: String -> TVar String -> IO Char
-      f (c:str) tstr = do
+      -- f :: String -> TVar String -> IO Char
+      f (c:str) tstr strSug = do
          atomically $ writeTVar tstr str
          return c
-      f _ tstr = do
+      f _ tstr tstrSug = do
          putStrLn "Write string line:"
+         atomically $ writeTVar tstrSug ""
          str <- getLine
-	 f str tstr
+	 f str tstr tstrSug
 

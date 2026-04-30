@@ -110,12 +110,18 @@ viewMinD' sa ns = let
    (t2,k2) = Fold.foldl 
       (\ (x1,y1) (x2,y2) -> if x1 > x2 then (x1,y1) else (x2,y2)) 
       (0,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) ksAll
-   in if t < t2 then kIn else k2
+   in if t < t2 then (t,kIn) else (t2,k2)
 
 viewMinD x y = snd $ viewMinD' x y
 
-viewTail :: Seq a -> NextSeq a -> Seq (Distance, Seq a)
+viewTail :: (Eq a, Hashable a) => Seq a -> NextSeq a -> Seq (Distance, Seq a)
 viewTail sa ns = fmap (\s-> viewMinD' s ns) $ Seq.tails sa
+
+viewTailWith :: (Eq a, Hashable a) => Seq a -> NextSeq a -> Seq (Seq a, Distance, Seq a)
+viewTailWith sa ns = fmap (\s-> (\(x,y)->(s,x,y)) $ viewMinD' s ns) $ Seq.tails sa
+
+viewTailNoIn :: (Eq a, Hashable a) => Seq a -> NextSeq a -> Seq (Distance, Seq a)
+viewTailNoIn sa ns = fmap (\s-> (\(x,y)->(x, Seq.drop (Seq.length s) y) ) $ viewMinD' s ns) $ Seq.tails sa
 
 type MaxContext = Int
 
@@ -153,8 +159,8 @@ zeroSuggestion sh = do
    if not $ HMap.null $ generalPatternNS ns
       then do 
          ccn <- liftIO $ readTVarIO (currentContext sh)
-         let cs = viewMinD ccn ns
-         let mnextA = cs Seq.!? (Seq.length ccn)
+         let (cs,_,_) = generalizationPattern (shGeneralRadius sh) $ Fold.foldl (HSet.union) HSet.empty $ fmap (HSet.singleton . snd) $ viewTailNoIn ccn ns
+         let mnextA = cs Seq.!? 0 -- (Seq.length ccn)
          mapM (\nextA-> liftIO $ (outputA sh) nextA) mnextA
 	 liftIO $ atomically $ writeTVar (currentSuggestion sh) cs 
 	 return ()
