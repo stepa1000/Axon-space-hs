@@ -38,6 +38,7 @@ import Data.UUID
 import Data.Sequence as Seq
 import Data.Monoid
 import Data.Hashable
+import Data.Maybe
 -- import Control.Monad.LogicState
 
 import Data.Axon.Base.Types
@@ -49,42 +50,44 @@ generationRadiusPattern :: (Eq a, Hashable a) =>
 generationRadiusPattern rp a sa = let
    si = Seq.iterateN (Seq.length sa) (+ 1) 0
    sai = Seq.filter (\(x,y)->x == a) $ Seq.zip sa si
-   in Fold.fold $ mapM (\(x,y)-> let 
+   in Fold.fold $ fmap (\(x,y)-> let 
      li = [y-rp, y-rp + 1 .. y + rp]
-     in HSet.singleton $ Seq.fromList $ catMaybes $ mapM (\i-> sa Seq.!? i ) li
+     in HSet.singleton $ Seq.fromList $ catMaybes $ fmap (\i-> sa Seq.!? i ) li
      ) sai
 
 generationPatternBrackets :: (Eq a, Hashable a) =>
    a -> Seq a -> HashSet (Seq a)
-generationRadiusPattern rp a sa = let
+generationPatternBrackets a sa = let
    si = Seq.iterateN (Seq.length sa) (+ 1) 0
    sai = Seq.filter (\(x,y)->x == a) $ Seq.zip sa si
    saif = f sai
    f (a1 :<| (a2 :<| s)) = (snd a1, snd a2) :<| (f $ a2 :<| s)
    f _ = Seq.Empty
-   in Fold.fold $ mapM (\(x,y)-> let 
-     li = [x, x + 1, .. y]
-     in HSet.singleton $ Seq.fromList $ catMaybes $ mapM (\i-> sa Seq.!? i ) li
+   in Fold.fold $ fmap (\(x,y)-> let 
+     li = [x, x + 1 .. y]
+     in HSet.singleton $ Seq.fromList $ catMaybes $ fmap (\i-> sa Seq.!? i ) li
      ) saif
 
 generationPattern :: (Eq a, Hashable a) =>
    RadiusPattern -> Seq a -> HashSet (Seq a)
-generationPattern pr sa = Fold.foldl1 (Seq.union) $ mapM (\a-> let 
+generationPattern pr sa = Fold.foldl1 (HSet.union) $ fmap (\a-> let 
    p1 = generationRadiusPattern pr a sa
-   p2 = generationRadiusPattern a sa
+   p2 = generationPatternBrackets a sa
    in HSet.union p1 p2) sa
 
 generalPattern :: GeneralRadius -> HashSet (Seq a) -> NextSeq a
 generalPattern gr hs = let 
    (seq, seqIn ,seqOut ) = generalizationPattern gr hs
-   hs = if not $ HSet.null seqIn then generalPattern gr seqOut
+   ns = if not $ HSet.null seqIn then generalPattern gr seqOut
       else NextSeq (HMap.empty) ( seqOut)
-   in hs {generalPattern = HMap.insert seq seqIn (generalPattern hs)}
+   in ns {generalPatternNS = HMap.insert seq seqIn (generalPatternNS ns)}
 
 data NextSeq a = NextSeq
-   { generalPattern :: HashMap (Seq a) (HashSet (Seq a))
-   , uneqPattern :: HashSet (Seq a))
+   { generalPatternNS :: HashMap (Seq a) (HashSet (Seq a))
+   , uneqPattern :: HashSet (Seq a)
    }
+
+emptyNextSeq = NextSeq HMap.empty HSet.empty
 {-
 viewA :: a -> NextSeq a -> (HashMap (Seq a) (HashSet (Seq a)), HashSet (Seq a)) )
 viewA a ns = undefined
@@ -94,16 +97,16 @@ viewSeqA a ns = undefined
 -}
 viewMinD :: Seq a -> NextSeq a -> (Seq a)
 viewMinD sa ns = let
-   km = HMap.keys $ generalPattern ns
+   km = HMap.keys $ generalPatternNS ns
    ks = HSet.toList $ uneqPattern ns
    (t,kIn) = Fold.foldl 
       (\ (x1,y1) (x2,y2) -> if x1 < x2 then (x1,y1) else (x2,y2)) 
       (1,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) km
-   ksIn = HSet.toList $ (generalPattern ns) HMap.!? kIn
-   ksAll == ks ++ ksIn
+   ksIn = maybe [] id $ fmap HSet.toList $ (generalPatternNS ns) HMap.!? kIn
+   ksAll = ks ++ ksIn
    (t2,k2) = Fold.foldl 
       (\ (x1,y1) (x2,y2) -> if x1 < x2 then (x1,y1) else (x2,y2)) 
-      (1,Seq.Empty) fmap (\k -> (distanceSeq sa k, k) ) ksAll
+      (1,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) ksAll
    in if t < t2 then kIn else k2
 
 type MaxContext = Int
@@ -140,7 +143,7 @@ zeroSuggestion sh = do
    -- (gs,bs) <- get
    ns <- liftIO $ readTVarIO (currentNextSeq sh)
    if not $ HMap.null ns
-      then 
+      then do 
          ccn <- liftIO $ readTVarIO (currentContext sh)
          let cs = viewMinD ccn ns
          let mnextA = cs Seq.!? (Seq.length ccn)
@@ -149,7 +152,7 @@ zeroSuggestion sh = do
 	 return ()
       else return ()
    where
-      f (_ :< s) = s
+      f (_ Seq.:< s) = s
       f _ = Seq.Empty
 
 -- type LerningSuggestion gs bs m = LogicStateT gs bs m ()
@@ -164,7 +167,7 @@ lerningSuggestion sh = do
       then do
          let nns = generalPattern (shGeneralRadius sh) $ generationPattern (shRadiusPattern sh) ccn
          liftIO $ atomically $ modifyTVar (currentContext sh) (\ns ->
-	          ns { generalPattern = HMap.unionWith (HSet.union) (generalPattern ns) (generalPattern nns)
+	          ns { generalPatternNS = HMap.unionWith (HSet.union) (generalPatternNS ns) (generalPatternNS nns)
 		      , uneqPattern = (HSet.union) (uneqPattern ns) (uneqPattern nns)
 		      }
 		  )

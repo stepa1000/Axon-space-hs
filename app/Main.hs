@@ -11,8 +11,10 @@ import Data.Map as Map
 import Data.Set as Set
 
 import Visual
+import Char
 
-main = mainPingPong
+main = mainChar 
+-- mainPingPong
 
 initialDisplay pic = display
   (InWindow "test" (1000,1000) (0,0))

@@ -49,4 +49,40 @@ initSuggestionHandlerChar ::
    GeneralRadius -> 
    RadiusPattern -> 
    SuggestionHandler Char
-initSuggestionHandlerChar mc me gr rp = 
+initSuggestionHandlerChar mc me gr rp = do
+   tstr <- newTVarIO ""
+   tcc <- newTVarIO Seq.Empty
+   tcns <- newTVarIO emptyNextSeq
+   tcs <- newTVarIO Seq.Empty
+   return $ SuggestionHandler
+      (do
+         str <- readTVarIO tstr
+         f str tstr
+	 )
+      (\c-> do
+         str <- readTVarIO tstr
+         g str c
+      )
+      (\ seqC -> do
+         print $ "Current suggestion:" ++ (show seqC)
+	 )
+      tcc
+      tcns
+      tcs
+      mc
+      me
+      gr
+      rp
+   where
+      g (c:str) c2 = do
+         print $ "Eq char:" ++ (show $ c == c2) ++ ":C1:" ++ (show c) ++ ":C2:" (show c2) ++ "\n"
+      g _ c = do
+         putStrLn "Null string"
+      f (c:str) tstr= do
+         atmically $ writeTVar tstr str
+         return c
+      f _ _ = do
+         putStrLn "Write string line:"
+         str <- getLine
+	 f str
+

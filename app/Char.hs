@@ -4,8 +4,11 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DeriveGeneric #-}
 
-module Data.Axon.Base.ReceptionLogic where
+module Char where
 
 import Prelude as P
 
@@ -20,7 +23,6 @@ import Data.Ix
 import Data.Functor.Adjunction
 import Control.Comonad
 import Control.Comonad.Env
-import Control.Monad
 import Control.Monad.Reader
 import Control.Comonad.Trans.Adjoint as W
 import Data.Array.MArray
@@ -33,35 +35,24 @@ import Data.Set as Set
 import Data.HashSet as HSet
 import Control.Concurrent.Async
 import Data.Traversable
-import Data.Foldable as Fold
+import Data.Foldable
 import Data.Proxy
 import Data.UUID
 import Data.Sequence as Seq
-import Data.List as List
-import Data.Monoid
-import Data.Semigroup
-import Control.Applicative
-import Data.Maybe
-import Data.Hashable
+import GHC.Generics
+import Control.Concurrent
+import Graphics.Gloss.Interface.IO.Animate
 
-import Data.Axon.Base.Types
+import Data.Generics.Product.Fields
+
+import Data.Axon.Base.Axon
+import Data.Axon.Picture
 import Data.Logger
-import Data.Axon.Base.Axon 
 
-generationRWSpace :: (Num i, Ix i, Enum i) => AxonDendritSetting g a i -> [(i,i)]
-generationRWSpace axdes = lp
-   where
-      li@(xl,yl) = lowerIndex axdes
-      ui@(xu,yu) = uperIndex axdes
-      v = lengthPattern axdes
-      lx = [xl + v, xl + 2 * v .. xu]
-      ly = [yl + v, yl + 2 * v .. yu]
-      lp = liftA2 (,) lx ly
+import Data.Seq.Base
+import Data.Seq.Char
 
-data ReceptionService r i = ReceptionService 
-   { rsRWSpace :: TVar [(i,i)]
-   , rsReception :: TVar (HashSet (i,i))
-   , rsRection :: TVar (HashSet (i,i))
-   , rsReceptionMapIn :: TVar (HashMap r (DendritPatern i))
-   , rsReceptionMapOut :: TVar (HashMap (DendritPatern i) r)
-   }
+mainChar :: IO ()
+mainChar = do
+   sh <- initSuggestionHandlerChar 6 3 0.80 3
+   updateZLSuggestion sh

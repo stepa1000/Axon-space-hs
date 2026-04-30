@@ -27,9 +27,12 @@ library
   exposed-modules:
       Data.Axon.Base.Axon
       Data.Axon.Base.DendritLogic
+      Data.Axon.Base.ReceptionLogic
       Data.Axon.Base.Types
       Data.Axon.Picture
       Data.Logger
+      Data.Seq.Base
+      Data.Seq.Char
   other-modules:
       Paths_Axon_space_hs
   autogen-modules:
@@ -67,6 +70,7 @@ library
 executable Axon-space-exe
   main-is: Main.hs
   other-modules:
+      Char
       Visual
       Paths_Axon_space_hs
   autogen-modules:
