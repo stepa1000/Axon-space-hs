@@ -112,8 +112,8 @@ viewMinD' sa ns = let
       (0,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) ksAll
    in if t < t2 then (t,kIn) else (t2,k2)
 
-viewGeneral' :: (Eq a, Hashable a) => Seq a -> NextSeq a -> (Seq a, Seq a)
-viewGeneral' sa ns = let
+viewGeneral :: (Eq a, Hashable a) => Seq a -> NextSeq a -> (Seq a, Seq a)
+viewGeneral sa ns = let
    km = HMap.keys $ generalPatternNS ns
    ks = HSet.toList $ uneqPattern ns
    (t,kIn) = Fold.foldl 
@@ -129,6 +129,24 @@ viewGeneral' sa ns = let
       (0,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) ksIn
    in if t < t2 then (kIn,kIn) else if t2 < t3 then (kIn,k3) else (Seq.Empty,k2)
 
+viewGeneralL :: (Eq a, Hashable a) => Seq a -> NextSeq a -> (Seq a, [Seq a])
+viewGeneralL sa ns = let
+   km = HMap.keys $ generalPatternNS ns
+   ks = HSet.toList $ uneqPattern ns
+   (t,kIn) = Fold.foldl 
+      (\ (x1,y1) (x2,y2) -> if x1 > x2 then (x1,y1) else (x2,y2)) 
+      (0,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) km
+   ksIn = maybe [] id $ fmap HSet.toList $ (generalPatternNS ns) HMap.!? kIn
+   -- ksAll = ks ++ ksIn
+   (t2,k2) = Fold.foldl 
+      (\ (x1,y1) (x2,y2) -> if x1 > x2 then (x1,y1) else 
+         if x1 == x2 then (x1, y1 ++ y2) else (x2,y2) ) 
+      (0,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, [k]) ) ks
+   (t3,k3) = Fold.foldl 
+      (\ (x1,y1) (x2,y2) -> if x1 > x2 then (x1,y1) else 
+         if x1 == x2 then (x1, y1 ++ y2) else (x2,y2) ) 
+      (0,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, [k]) ) ksIn
+   in if t < t2 then (kIn,kIn) else if t2 < t3 then (kIn,k3) else (Seq.Empty,k2)
 
 viewMinD x y = snd $ viewMinD' x y
 
@@ -141,6 +159,24 @@ viewTailWith sa ns = fmap (\s-> (\(x,y)->(s,x,y)) $ viewMinD' s ns) $ Seq.tails 
 viewGeneralTail :: (Eq a, Hashable a) => Seq a -> NextSeq a -> Seq (Seq a, Seq a)
 viewGeneralTail sa ns = fmap (\s-> viewGeneral s ns) $ Seq.tails sa 
 
+viewGeneralLTail :: (Eq a, Hashable a) => Seq a -> NextSeq a -> Seq (Seq a, [Seq a])
+viewGeneralLTail sa ns = fmap (\s-> viewGeneralL s ns) $ Seq.tails sa
+
+data ViewSeqTail a = ViewSeqTail
+   { -- context :: Seq a
+     suggestion :: Seq a
+   --, withappand :: Seq a
+   , withoutappend :: Seq a
+   }
+
+viewGeneralLTailUp :: (Eq a, Hashable a) => Seq a -> NextSeq a -> Seq (Seq a, [ViewSeqTail a])
+viewGeneralLTailUp sa ns = let 
+   sssa = viewGeneralLTail sa ns
+   sta = Seq.tails sa 
+   in fmap (\((cs,ls),s)-> f cs ls s ) $ Seq.zip sssa sta
+   where 
+      f cs ls s = fmap (\ss -> ViewSeqTail ss (Seq.drop (Seq.length s) ss)) ls
+
 viewTailNoIn :: (Eq a, Hashable a) => Seq a -> NextSeq a -> Seq (Distance, Seq a)
 viewTailNoIn sa ns = fmap (\s-> (\(x,y)->(x, Seq.drop (Seq.length s) y) ) $ viewMinD' s ns) $ Seq.tails sa
 
@@ -150,6 +186,52 @@ type MaxError = Float
 
 type Hash = Int
 
+data SuggestionHandlerSimple a = SuggestionHandlerSimple 
+   { shsCurrentContext :: TVar (Seq a)
+   , shsCurrentnextSeq :: TVar (NextSeq a)
+   , shsCurrentSuggestion :: TVar (Seq (Seq a, [ViewSeqTail a]))
+   , shsPowSuggestion :: Maybe (SuggestionHandlerSimple (Seq a))
+   , shsMaxContext :: MaxContext
+   , shsMaxError :: MaxError
+   }
+
+contextUp :: TVar (Seq a) -> MaxContext -> a -> IO ()
+contextUp tvs mc na = do
+   atomically $ modifyTVar tvs (:|> na)
+   atomically $ modifyTVar tvs 
+      (\s-> if Seq.length s > mc then f $ viewl s else s)
+   return na 
+   where
+      f (_ Seq.:< s) = s
+      f _ = Seq.Empty
+
+
+-- Ben Azai looked and died.
+checkSuggestion :: TVar (Seq a) -> TVar (Seq (Seq a, [ViewSeqTail a])) -> IO (Seq a)
+checkSuggestion tvs tvsugg = do
+   
+-- checkView
+
+{-
+Бен Азай взглянул и умер. 
+Бен Зома взглянул и повредился [в уме]. 
+Элиша бен Абуя стал «вырывать саженцы» (Маймонид видит в этом желание постичь нечто большее, чем возможно для человеческого разумения). 
+Рабби Акива «вошёл с миром и вышел с миром».
+
+Ben Azai looked and died.
+Ben Zoma looked and was damaged [in his mind].
+Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a desire to comprehend something greater than is possible for human understanding).
+Rabbi Akiva "entered in peace and left in peace."
+-}
+
+shsStep :: (Eq a, Hashable a) => 
+   SuggestionHandlerSimple a
+   a -> 
+   IO (Maybe a)
+shsStep shs a = do
+   contextUp (shsCurrentContext shs) (shsMaxContext shs) a
+   
+
 data SuggestionHandler a = SuggestionHandler
    { inputA :: IO a
    , outputA :: a -> IO ()
@@ -157,18 +239,18 @@ data SuggestionHandler a = SuggestionHandler
    , currentContext :: TVar (Seq a)
    , currentNextSeq :: TVar (NextSeq a)
    , currentSuggestion :: TVar (Seq a)
-   , currentFullSuggestion :: TVar (Seq a)
-   , currentElementSuggestion :: TVar (Seq a)
+   --, currentFullSuggestion :: TVar (Seq a)
+   --, currentElementSuggestion :: TVar (Seq a)
    , maxContext :: MaxContext
    , maxError :: MaxError
    , shGeneralRadius :: GeneralRadius
    , shRadiusPattern :: RadiusPattern
-   , shPowerSuggestion :: HashMap Hash (SuggestionHandler Hash)
+   {-, shPowerSuggestion :: HashMap Hash (SuggestionHandler Hash)
    , shPSInput :: TVar Hash
    , shPSOutput :: TMVar Hash
    , shGeneralSuggestion :: Maybe (SuggestionHandler Hash)
    , shGSInput :: TVar Hash
-   , shGSOutput :: TMVar Hash
+   , shGSOutput :: TMVar Hash-}
    }
 {-
 type NotSuggestion gs bs m = LogicStateT gs bs m ()
@@ -186,6 +268,9 @@ addContext = do
    liftIO $ atomically $ modifyTVar (currentContext sh) 
       (\s-> if Seq.length s > (maxContext sh) then f $ viewl s else s)
    return na 
+   where
+      f (_ Seq.:< s) = s
+      f _ = Seq.Empty
 
 zeroSuggestion :: (MonadIO m, Eq a, Hashable a) => 
    SuggestionHandler a -> m () -- LogicStateT gs bs m () -- (NotSuggestion gs bs m)
@@ -206,7 +291,7 @@ zeroSuggestion sh = do
    where
       f (_ Seq.:< s) = s
       f _ = Seq.Empty
-
+{-
 stepSuggestion :: (MonadIO m, Eq a, Hashable a) => 
    SuggestionHandler a -> m () -- LogicStateT gs bs m () -- (NotSuggestion gs bs m)
 stepSuggestion sh = do
@@ -258,6 +343,7 @@ stepSuggestion sh = do
                   let l = Seq.length vtw2
                   i <- liftIO $ randomRIO (0,l - 1)
 		  return $ vtw2 Seq.index i
+	 -- rigth now i need do thet buuuut .... 
 	 let mnextA = cs Seq.!? 0 -- (Seq.length ccn)
          mapM (\nextA-> liftIO $ (outputA sh) nextA) mnextA
 	 liftIO $ atomically $ writeTVar (currentSuggestion sh) cs 
@@ -266,7 +352,7 @@ stepSuggestion sh = do
    where
       f (_ Seq.:< s) = s
       f _ = Seq.Empty
-
+-}
 
 -- type LerningSuggestion gs bs m = LogicStateT gs bs m ()
 
