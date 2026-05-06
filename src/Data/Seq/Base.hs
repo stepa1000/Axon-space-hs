@@ -205,12 +205,69 @@ contextUp tvs mc na = do
       f (_ Seq.:< s) = s
       f _ = Seq.Empty
 
-
 -- Ben Azai looked and died.
+-- Check past suggestion if not died, memrize that.
 checkSuggestion :: TVar (Seq a) -> TVar (Seq (Seq a, [ViewSeqTail a])) -> IO (Seq a)
 checkSuggestion tvs tvsugg = do
-   
+   cc <- readTVarIO tvs
+   cs <- readTVarIO tvsugg
+   if not $ Seq.null cc || Seq.null cs
+      then do
+         let lastA = cc Seq.!! ((Seq.length cc) - 1)
+	 hss <- fmap (Fold.foldl HSet.union HSet.empty) $ mapM (\(sc,lvst) -> do
+	    ls <- fmap catMaybes $ mapM (\ vst -> do
+	       let was = withoutappend vst
+	       if Seq.nill was then return Nothing
+	          else do
+		     let firstA = was Seq.!! 0
+		     if lastA == firstA then return $ Just was
+		        else return Nothing
+	       ) lvst
+	    let hss = Fold.foldl HSet.union HSet.empty $ fmap Seq.singleton ls
+	    return hss
+	    ) cs
+	 let (midle, _, _) = generalizationPattern 0.2 hss
+	 return midle
+      else return Seq.Empty
 -- checkView
+
+updatePowSuggestion :: Maybe (SuggestionHandlerSimple (Seq a)) -> Seq a -> IO (Maybe (Seq a))
+updatePowSuggestion mshs sa = do
+   fmap join $ mapM (\shs-> do
+      if Seq.null sa then return Nothing
+         else do
+	    shsStep shs sa
+      ) mshs
+
+lerningS :: (Eq a, Hashable a) => 
+   TVar (Seq a) -> 
+   TVar (NextSeq a) ->
+   IO () -- (LerningSuggestion gs bs m)
+lerningS tcc tns = do
+   -- lS <- once $ backtrack $ return () 
+   ccn <- liftIO $ readTVarIO tcc
+   let nns = generalPattern (shGeneralRadius sh) $ generationPattern (shRadiusPattern sh) ccn
+   atomically $ modifyTVar tns (\ns ->
+          ns { generalPatternNS = HMap.unionWith (HSet.union) (generalPatternNS ns) (generalPatternNS nns)
+	      , uneqPattern = (HSet.union) (uneqPattern ns) (uneqPattern nns)
+	      }
+	  )
+
+checkView :: 
+   Seq a -> 
+   (Maybe (Seq a)) -> 
+   TVar (Seq a) -> 
+   TVar (Seq (Seq a, [ViewSeqTail a])) ->
+   TVar (NextSeq a) ->
+   IO (Maybe a)
+checkView ts mS tvc tvs tns = do
+   cc <- readTVarIO tvc
+   cs <- readTVarIO tvs 
+   -- ns <- readTVarIO tns
+   when (Seq.null ts) $ do
+      
+   let nssvst = viewGeneralLTailUp cc ns
+   atomically $ writeTVar tvs nssvst
 
 {-
 Бен Азай взглянул и умер. 
@@ -229,7 +286,15 @@ shsStep :: (Eq a, Hashable a) =>
    a -> 
    IO (Maybe a)
 shsStep shs a = do
+   -- Ben Azai looked and died.
    contextUp (shsCurrentContext shs) (shsMaxContext shs) a
+   -- Ben Zoma looked and was damaged [in his mind].
+   cs <- checkSuggestion (shsCurrentContext shs) (shsCurrentSuggestion shs)
+   -- Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a desire to comprehend something greater than is possible for human understanding).
+   mncs <- updatePowSuggestion (shsPowSuggestion shs) cs
+
+   -- Rabbi Akiva "entered in peace and left in peace."
+   
    
 
 data SuggestionHandler a = SuggestionHandler
