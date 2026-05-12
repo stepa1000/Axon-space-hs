@@ -264,10 +264,23 @@ checkView ts mS tvc tvs tns = do
    cc <- readTVarIO tvc
    cs <- readTVarIO tvs 
    -- ns <- readTVarIO tns
-   when (Seq.null ts) $ do
-      
    let nssvst = viewGeneralLTailUp cc ns
-   atomically $ writeTVar tvs nssvst
+   if (Seq.null ts || Seq.null nssvst)  
+      then do
+         lerningS tvc tns
+         let nssvst2 = viewGeneralLTailUp cc ns
+         atomically $ writeTVar tvs nssvst2
+      else do
+         s <- maybe 
+	    ( do
+	       let hss = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap (HSet.singleton . withoutappend) . snd) nssvst
+               let (midle, _, _) = generalizationPattern 0.2 hss
+	       return midle
+	    ) 
+	    return mS
+         atomically $ writeTVar tvs nssvst 
+	 if Seq.null s then return Nothing
+	    else return $ Just # s Seq.!! 0
 
 {-
 Бен Азай взглянул и умер. 
@@ -292,10 +305,8 @@ shsStep shs a = do
    cs <- checkSuggestion (shsCurrentContext shs) (shsCurrentSuggestion shs)
    -- Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a desire to comprehend something greater than is possible for human understanding).
    mncs <- updatePowSuggestion (shsPowSuggestion shs) cs
-
+   checkView cs mncs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
    -- Rabbi Akiva "entered in peace and left in peace."
-   
-   
 
 data SuggestionHandler a = SuggestionHandler
    { inputA :: IO a

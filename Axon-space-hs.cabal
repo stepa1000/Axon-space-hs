@@ -33,6 +33,7 @@ library
       Data.Logger
       Data.Seq.Base
       Data.Seq.Char
+      Data.Seq.ProBase
   other-modules:
       Paths_Axon_space_hs
   autogen-modules:
