@@ -1,6 +1,6 @@
 
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs = { self, nixpkgs }:
     let
@@ -11,7 +11,7 @@
         buildInputs = [
 	  pkgs.cabal-install
           pkgs.stack
-          # pkgs.haskell.compiler.ghc914 # Match your Stack resolver's GHC
+          pkgs.haskell.compiler.ghc910 # Match your Stack resolver's GHC
           pkgs.zlib # Example of a C library dependency
           pkgs.pkg-config
           #pkgs.OpenGL

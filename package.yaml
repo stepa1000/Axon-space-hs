@@ -22,7 +22,7 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.19 && < 5
-- adjunction-combinators
+- adj-combinators
 - containers
 - random
 - adjunctions

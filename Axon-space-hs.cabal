@@ -33,6 +33,7 @@ library
       Data.Logger
       Data.Seq.Base
       Data.Seq.Char
+      Data.Seq.Functional
       Data.Seq.ProBase
   other-modules:
       Paths_Axon_space_hs
@@ -42,7 +43,7 @@ library
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -O2
   build-depends:
-      adjunction-combinators
+      adj-combinators
     , adjunctions
     , aeson
     , array
@@ -81,7 +82,7 @@ executable Axon-space-exe
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -O2 -threaded -rtsopts -g -with-rtsopts=-N -O2
   build-depends:
       Axon-space-hs
-    , adjunction-combinators
+    , adj-combinators
     , adjunctions
     , aeson
     , array
@@ -119,7 +120,7 @@ test-suite TreeHash-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -O2 -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       Axon-space-hs
-    , adjunction-combinators
+    , adj-combinators
     , adjunctions
     , aeson
     , array

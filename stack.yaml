@@ -20,7 +20,7 @@
 # snapshot: nightly-2024-10-10
   #  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/22/37.yaml
 
-snapshot: ghc-9.10.3
+snapshot: lts-24.41
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -63,7 +63,8 @@ packages:
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 extra-deps:
 - git: https://github.com/stepa1000/adjunction-combinators.git
-  commit: a3adca030e318c5bf5b26077f1587712b947db9f
+  commit: b36e5bb44ff5ce46c6f552fc9054f12287085c31
+  subdir: adj-combinators
 - git: https://github.com/stepa1000/coandkleisli.git
   commit: bb1589221de5f2506a167b7fdf9d667cee6a5d7f
 - git: https://github.com/stepa1000/free-profunctor.git
