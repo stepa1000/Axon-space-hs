@@ -5,7 +5,7 @@ import Graphics.Gloss.Data.Color
 import Graphics.Gloss.Data.Picture
 import Graphics.Gloss.Interface.Pure.Display
 import Data.Array.MArray
-import Control.Base.Comonad
+-- import Control.Base.Comonad
 import Data.Functor.Identity
 import Data.Map as Map
 import Data.Set as Set

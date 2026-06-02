@@ -13,7 +13,7 @@ import Control.Monad.STM
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM.TArray
 import Control.Core.Composition
-import Control.Base.Comonad
+-- import Control.Base.Comonad
 import Graphics.Gloss.Data.Picture
 import Graphics.Gloss.Data.Color
 import Data.Ix
@@ -42,6 +42,17 @@ import Data.Hashable
 
 import Data.Axon.Base.Types
 import Data.Seq.Base
+
+shsInitChar3 :: 
+   MaxContext -> 
+   MaxError ->
+   GeneralRadius -> 
+   RadiusPattern ->
+   IO (SuggestionHandlerSimple Char)
+shsInitChar3 mc me gr rp =
+  shs3 <- shsInit Nothing mc me gr rp
+  shs2 <- shsInit (Just shs3) mc me gr rp
+  shsInit (Just shs2) mc me gr rp
 
 initSuggestionHandlerChar :: 
    MaxContext -> 

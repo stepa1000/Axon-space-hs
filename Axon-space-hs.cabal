@@ -26,15 +26,12 @@ source-repository head
 library
   exposed-modules:
       Data.Axon.Base.Axon
-      Data.Axon.Base.DendritLogic
-      Data.Axon.Base.ReceptionLogic
       Data.Axon.Base.Types
       Data.Axon.Picture
       Data.Logger
       Data.Seq.Base
       Data.Seq.Char
       Data.Seq.Functional
-      Data.Seq.ProBase
   other-modules:
       Paths_Axon_space_hs
   autogen-modules:

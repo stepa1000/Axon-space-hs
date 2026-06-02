@@ -13,7 +13,7 @@ import Control.Monad.STM
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM.TArray
 import Control.Core.Composition
-import Control.Base.Comonad
+-- import Control.Base.Comonad
 import Graphics.Gloss.Data.Picture
 import Graphics.Gloss.Data.Color
 import Data.Ix
@@ -25,6 +25,7 @@ import Control.Comonad.Trans.Adjoint as W
 import Data.Array.MArray
 import Debug.Trace
 import Control.Lens
+import Control.Monad
 import System.Random
 import Data.Map as Map
 import Data.HashMap.Lazy as HMap
@@ -141,12 +142,12 @@ viewGeneralL sa ns = let
    (t2,k2) = Fold.foldl 
       (\ (x1,y1) (x2,y2) -> if x1 > x2 then (x1,y1) else 
          if x1 == x2 then (x1, y1 ++ y2) else (x2,y2) ) 
-      (0,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, [k]) ) ks
+      (0,[]) $ fmap (\k -> (distanceSeq sa k, [k]) ) ks
    (t3,k3) = Fold.foldl 
       (\ (x1,y1) (x2,y2) -> if x1 > x2 then (x1,y1) else 
          if x1 == x2 then (x1, y1 ++ y2) else (x2,y2) ) 
-      (0,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, [k]) ) ksIn
-   in if t < t2 then (kIn,kIn) else if t2 < t3 then (kIn,k3) else (Seq.Empty,k2)
+      (0,[]) $ fmap (\k -> (distanceSeq sa k, [k]) ) ksIn
+   in if t < t2 then (kIn,[kIn]) else if t2 < t3 then (kIn,k3) else (Seq.Empty,k2)
 
 viewMinD x y = snd $ viewMinD' x y
 
@@ -173,7 +174,7 @@ viewGeneralLTailUp :: (Eq a, Hashable a) => Seq a -> NextSeq a -> Seq (Seq a, [V
 viewGeneralLTailUp sa ns = let 
    sssa = viewGeneralLTail sa ns
    sta = Seq.tails sa 
-   in fmap (\((cs,ls),s)-> f cs ls s ) $ Seq.zip sssa sta
+   in fmap (\((cs,ls),s)-> (cs, f cs ls s )) $ Seq.zip sssa sta
    where 
       f cs ls s = fmap (\ss -> ViewSeqTail ss (Seq.drop (Seq.length s) ss)) ls
 
@@ -193,37 +194,39 @@ data SuggestionHandlerSimple a = SuggestionHandlerSimple
    , shsPowSuggestion :: Maybe (SuggestionHandlerSimple (Seq a))
    , shsMaxContext :: MaxContext
    , shsMaxError :: MaxError
+   , shsRadiusPattern :: RadiusPattern
+   , shsGeneralRadius :: GeneralRadius
    }
 
-contextUp :: TVar (Seq a) -> MaxContext -> a -> IO ()
+contextUp ::  (Eq a, Hashable a) => TVar (Seq a) -> MaxContext -> a -> IO ()
 contextUp tvs mc na = do
    atomically $ modifyTVar tvs (:|> na)
    atomically $ modifyTVar tvs 
       (\s-> if Seq.length s > mc then f $ viewl s else s)
-   return na 
+   return ()
    where
       f (_ Seq.:< s) = s
       f _ = Seq.Empty
 
 -- Ben Azai looked and died.
 -- Check past suggestion if not died, memrize that.
-checkSuggestion :: TVar (Seq a) -> TVar (Seq (Seq a, [ViewSeqTail a])) -> IO (Seq a)
+checkSuggestion :: (Eq a, Hashable a) => TVar (Seq a) -> TVar (Seq (Seq a, [ViewSeqTail a])) -> IO (Seq a)
 checkSuggestion tvs tvsugg = do
    cc <- readTVarIO tvs
    cs <- readTVarIO tvsugg
    if not $ Seq.null cc || Seq.null cs
       then do
-         let lastA = cc Seq.!! ((Seq.length cc) - 1)
+         let lastA = fromJust $ cc Seq.!? ((Seq.length cc) - 1)
 	 hss <- fmap (Fold.foldl HSet.union HSet.empty) $ mapM (\(sc,lvst) -> do
 	    ls <- fmap catMaybes $ mapM (\ vst -> do
 	       let was = withoutappend vst
-	       if Seq.nill was then return Nothing
+	       if Seq.null was then return Nothing
 	          else do
-		     let firstA = was Seq.!! 0
+		     let firstA = fromJust $ was Seq.!? 0
 		     if lastA == firstA then return $ Just was
 		        else return Nothing
 	       ) lvst
-	    let hss = Fold.foldl HSet.union HSet.empty $ fmap Seq.singleton ls
+	    let hss = Fold.foldl HSet.union HSet.empty $ fmap HSet.singleton ls
 	    return hss
 	    ) cs
 	 let (midle, _, _) = generalizationPattern 0.2 hss
@@ -231,7 +234,7 @@ checkSuggestion tvs tvsugg = do
       else return Seq.Empty
 -- checkView
 
-updatePowSuggestion :: Maybe (SuggestionHandlerSimple (Seq a)) -> Seq a -> IO (Maybe (Seq a))
+updatePowSuggestion ::  (Eq a, Hashable a) => Maybe (SuggestionHandlerSimple (Seq a)) -> Seq a -> IO (Maybe (Seq a))
 updatePowSuggestion mshs sa = do
    fmap join $ mapM (\shs-> do
       if Seq.null sa then return Nothing
@@ -240,36 +243,39 @@ updatePowSuggestion mshs sa = do
       ) mshs
 
 lerningS :: (Eq a, Hashable a) => 
+   SuggestionHandlerSimple a ->
    TVar (Seq a) -> 
    TVar (NextSeq a) ->
    IO () -- (LerningSuggestion gs bs m)
-lerningS tcc tns = do
+lerningS sh tcc tns = do
    -- lS <- once $ backtrack $ return () 
    ccn <- liftIO $ readTVarIO tcc
-   let nns = generalPattern (shGeneralRadius sh) $ generationPattern (shRadiusPattern sh) ccn
+   let nns = generalPattern (shsGeneralRadius sh) $ generationPattern (shsRadiusPattern sh) ccn
    atomically $ modifyTVar tns (\ns ->
           ns { generalPatternNS = HMap.unionWith (HSet.union) (generalPatternNS ns) (generalPatternNS nns)
 	      , uneqPattern = (HSet.union) (uneqPattern ns) (uneqPattern nns)
 	      }
 	  )
 
-checkView :: 
+checkView :: (Eq a, Hashable a) =>
+   SuggestionHandlerSimple a ->
    Seq a -> 
    (Maybe (Seq a)) -> 
    TVar (Seq a) -> 
    TVar (Seq (Seq a, [ViewSeqTail a])) ->
    TVar (NextSeq a) ->
    IO (Maybe a)
-checkView ts mS tvc tvs tns = do
+checkView sh ts mS tvc tvs tns = do
    cc <- readTVarIO tvc
    cs <- readTVarIO tvs 
-   -- ns <- readTVarIO tns
+   ns <- readTVarIO tns
    let nssvst = viewGeneralLTailUp cc ns
    if (Seq.null ts || Seq.null nssvst)  
       then do
-         lerningS tvc tns
+         lerningS sh tvc tns
          let nssvst2 = viewGeneralLTailUp cc ns
          atomically $ writeTVar tvs nssvst2
+	 return Nothing
       else do
          s <- maybe 
 	    ( do
@@ -280,7 +286,7 @@ checkView ts mS tvc tvs tns = do
 	    return mS
          atomically $ writeTVar tvs nssvst 
 	 if Seq.null s then return Nothing
-	    else return $ Just # s Seq.!! 0
+	    else return $ s Seq.!? 0
 
 {-
 Бен Азай взглянул и умер. 
@@ -295,7 +301,7 @@ Rabbi Akiva "entered in peace and left in peace."
 -}
 
 shsStep :: (Eq a, Hashable a) => 
-   SuggestionHandlerSimple a
+   SuggestionHandlerSimple a ->
    a -> 
    IO (Maybe a)
 shsStep shs a = do
@@ -305,8 +311,22 @@ shsStep shs a = do
    cs <- checkSuggestion (shsCurrentContext shs) (shsCurrentSuggestion shs)
    -- Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a desire to comprehend something greater than is possible for human understanding).
    mncs <- updatePowSuggestion (shsPowSuggestion shs) cs
-   checkView cs mncs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
+   checkView shs cs mncs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
    -- Rabbi Akiva "entered in peace and left in peace."
+
+shsInit ::
+   Maybe (SuggestionHandlerSimple (Seq a)) ->
+   MaxContext -> 
+   MaxError ->
+   GeneralRadius -> 
+   RadiusPattern ->
+   IO (SuggestionHandlerSimple a)
+shsInit mshss mc me gr rp = do
+   tcc <- newTVarIO Seq.Empty
+   tcns <- newTVarIO emptyNextSeq
+   tcs <- newTVarIO Seq.Empty
+   return $ SuggestionHandlerSimple
+      tcc tcns tcs mshss mc me rp gr
 
 data SuggestionHandler a = SuggestionHandler
    { inputA :: IO a
@@ -338,7 +358,7 @@ class Suggstion gs bs a where
 
 addContext :: (MonadIO m, Eq a, Hashable a) => 
    SuggestionHandler a -> m a
-addContext = do
+addContext sh = do
    na <- liftIO $ inputA sh
    liftIO $ atomically $ modifyTVar (currentContext sh) (:|> na)
    liftIO $ atomically $ modifyTVar (currentContext sh) 
@@ -352,7 +372,7 @@ zeroSuggestion :: (MonadIO m, Eq a, Hashable a) =>
    SuggestionHandler a -> m () -- LogicStateT gs bs m () -- (NotSuggestion gs bs m)
 zeroSuggestion sh = do
    -- notS <- once $ backtrackWithRoll (\ _ _ -> return $ zeroBs sh) $ return () 
-   na <- addContext
+   na <- addContext sh
    -- (gs,bs) <- get
    ns <- liftIO $ readTVarIO (currentNextSeq sh)
    if not $ HMap.null $ generalPatternNS ns

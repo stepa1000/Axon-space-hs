@@ -16,7 +16,7 @@ import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM.TArray
 import Control.Concurrent.STM.TQueue
 import Control.Core.Composition
-import Control.Base.Comonad
+-- import Control.Base.Comonad
 import Graphics.Gloss.Data.Picture
 import Graphics.Gloss.Data.Color
 import Data.Ix

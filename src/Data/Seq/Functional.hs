@@ -13,7 +13,7 @@ import Control.Monad.STM
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM.TArray
 import Control.Core.Composition
-import Control.Base.Comonad
+-- import Control.Base.Comonad
 import Graphics.Gloss.Data.Picture
 import Graphics.Gloss.Data.Color
 import Data.Ix
@@ -48,44 +48,44 @@ data Fun a = Fun
    { funXY :: HashMap (Seq (Maybe a)) (Seq (Maybe a))
    }
 
-randomFun :: Seq a -> IO (Fun a)
+randomFun :: (Eq a, Hashable a) => Seq a -> IO (Fun a)
 randomFun s = do
    let ls = Seq.length s
-   i <- randomR (0,ls - 1)
+   i <- randomRIO (0,ls - 1)
    let (x,y) = Seq.splitAt i s
    let xl = Seq.length x
-   let yl = Seq.langth y
-   xi <- randomR (0,xl)
-   yi <- randomR (0,yl)
+   let yl = Seq.length y
+   xi <- randomRIO (0,xl)
+   yi <- randomRIO (0,yl)
    xn <- mapM (\a-> do
-      xj <- randomR (0,xl)
+      xj <- randomRIO (0,xl)
       if xj < xi then return $ Just a
          else return Nothing
       ) x
    yn <- mapM (\a-> do
-      yj <- randomR (0,yl)
+      yj <- randomRIO (0,yl)
       if yj < yi then return $ Just a
          else return Nothing
       ) y
    return $ Fun $ HMap.singleton xn yn
    
 
-generationSuggestionFun :: Int -> Seq a -> IO [Fun a]
+generationSuggestionFun :: (Eq a, Hashable a) => Int -> Seq a -> IO [Fun a]
 generationSuggestionFun i s = do
    mapM (\_-> do
       randomFun s
       ) [0,1 .. i]
 
-unionFun' :: Fun a -> Fun a -> Maybe (Fun a)
+unionFun' :: (Eq a, Hashable a) => Fun a -> Fun a -> Maybe (Fun a)
 unionFun' f1 f2 = if HMap.disjoint (funXY f1) (funXY f2) 
    then Just $ Fun $ HMap.union (funXY f1) (funXY f2)
    else Nothing
 
-unionFun :: [Fun a] -> [Fun a]
+unionFun :: (Eq a, Hashable a) => [Fun a] -> [Fun a]
 unionFun [] = []
 unionFun (x:l) = g $ Fold.foldl (\ (xf,l) f -> maybe (xf,f:l) (\fn-> (fn,l)) (unionFun' xf f) ) (x,[]) l
    where
-      g (xf,l) = xf : (uninoFun l)
+      g (xf,l) = xf : (unionFun l)
 
-runFun :: Fun a -> Seq a -> Seq (Maybe a)
-runFun f s = 
+runFun :: (Eq a, Hashable a) => Fun a -> Seq a -> Seq (Maybe a)
+runFun f s = undefined
