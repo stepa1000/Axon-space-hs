@@ -234,7 +234,7 @@ checkSuggestion tvs tvsugg = do
       else return Seq.Empty
 -- checkView
 
-updatePowSuggestion ::  (Eq a, Hashable a) => Maybe (SuggestionHandlerSimple (Seq a)) -> Seq a -> IO (Maybe (Seq a))
+updatePowSuggestion ::  (Eq a, Hashable a, Show a) => Maybe (SuggestionHandlerSimple (Seq a)) -> Seq a -> IO (Maybe (Seq a))
 updatePowSuggestion mshs sa = do
    fmap join $ mapM (\shs-> do
       if Seq.null sa then return Nothing
@@ -279,11 +279,13 @@ checkView sh ts mS tvc tvs tns = do
       else do
          s <- maybe 
 	    ( do
-	       let hss = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap (HSet.singleton . withoutappend) . snd) nssvst
+	       --let hss = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap (HSet.singleton . withoutappend) . snd) nssvst
+	       let hswa = fmap (foldl HMap.union HMap.empty . fmap (\x-> HMap.singleton x (withoutappend x) ) . snd) nssvst
+	       let hss = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap (HSet.singleton . suggestion) . snd) nssvst
                let (midle, _, _) = generalizationPattern 0.2 hss
-	       return midle
+	       return $ midle
 	    ) 
-	    return mS
+	    return $ join $ fmap (\s-> if Seq.null s then Nothing else Just s) mS
          atomically $ writeTVar tvs nssvst 
 	 if Seq.null s then return Nothing
 	    else return $ s Seq.!? 0
@@ -300,7 +302,7 @@ Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a de
 Rabbi Akiva "entered in peace and left in peace."
 -}
 
-shsStep :: (Eq a, Hashable a) => 
+shsStep :: (Eq a, Hashable a, Show a) => 
    SuggestionHandlerSimple a ->
    a -> 
    IO (Maybe a)
@@ -309,12 +311,14 @@ shsStep shs a = do
    contextUp (shsCurrentContext shs) (shsMaxContext shs) a
    -- Ben Zoma looked and was damaged [in his mind].
    cs <- checkSuggestion (shsCurrentContext shs) (shsCurrentSuggestion shs)
+   --putStrLn "CheckSuggestion"
+   --putStrLn $ show cs
    -- Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a desire to comprehend something greater than is possible for human understanding).
    mncs <- updatePowSuggestion (shsPowSuggestion shs) cs
    checkView shs cs mncs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
    -- Rabbi Akiva "entered in peace and left in peace."
 
-shsInit ::
+shsInit :: (Eq a, Hashable a, Show a) =>
    Maybe (SuggestionHandlerSimple (Seq a)) ->
    MaxContext -> 
    MaxError ->

@@ -43,13 +43,49 @@ import Data.Hashable
 import Data.Axon.Base.Types
 import Data.Seq.Base
 
+mainSHS :: MaxContext -> 
+   MaxError ->
+   GeneralRadius -> 
+   RadiusPattern ->
+   IO ()
+mainSHS mc me gr rp = do
+   shs <- shsInitChar1 mc me gr rp
+   f shs
+   where 
+      f shs = do
+         putStrLn "Write string"
+         str <- getLine
+         strn <- mapM (\c-> do
+	    mc <- shsStep shs c
+	    case mc of
+	       (Just cn) -> return cn
+	       Nothing -> return '?'
+	    ) str
+         putStrLn "Remember string"
+         putStrLn strn
+         putStrLn "All next suggestion string"
+	 ssvs <- readTVarIO $ shsCurrentSuggestion shs
+         mapM (\ (_,lvs) -> mapM (\ vs ->
+	    putStrLn $ Fold.fold $ fmap (\x->[x]) $ suggestion vs
+	    ) lvs) ssvs
+	 f shs
+	 
+shsInitChar1 :: 
+   MaxContext -> 
+   MaxError ->
+   GeneralRadius -> 
+   RadiusPattern ->
+   IO (SuggestionHandlerSimple Char)
+shsInitChar1 mc me gr rp = do
+  shsInit Nothing mc me gr rp
+
 shsInitChar3 :: 
    MaxContext -> 
    MaxError ->
    GeneralRadius -> 
    RadiusPattern ->
    IO (SuggestionHandlerSimple Char)
-shsInitChar3 mc me gr rp =
+shsInitChar3 mc me gr rp = do
   shs3 <- shsInit Nothing mc me gr rp
   shs2 <- shsInit (Just shs3) mc me gr rp
   shsInit (Just shs2) mc me gr rp

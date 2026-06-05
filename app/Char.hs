@@ -52,6 +52,9 @@ import Data.Logger
 import Data.Seq.Base
 import Data.Seq.Char
 
+mainCharSHS :: IO ()
+mainCharSHS = mainSHS 6 0.05 0.80 6
+
 mainChar :: IO ()
 mainChar = do
    sh <- initSuggestionHandlerChar 6 0.05 0.80 6
