@@ -66,7 +66,7 @@ mainSHS mc me gr rp = do
          putStrLn "All next suggestion string"
 	 ssvs <- readTVarIO $ shsCurrentSuggestion shs
          mapM (\ (_,lvs) -> mapM (\ vs ->
-	    putStrLn $ Fold.fold $ fmap (\x->[x]) $ suggestion vs
+	    putStrLn $ (Fold.fold $ fmap (\x->[x]) $ suggestion vs) ++ " : " ++ (Fold.fold $ fmap (\x->[x]) $ withoutappend vs)
 	    ) lvs) ssvs
 	 f shs
 	 

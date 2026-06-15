@@ -53,7 +53,7 @@ import Data.Seq.Base
 import Data.Seq.Char
 
 mainCharSHS :: IO ()
-mainCharSHS = mainSHS 6 0.05 0.80 6
+mainCharSHS = mainSHS 6 0.05 0.80 3
 
 mainChar :: IO ()
 mainChar = do

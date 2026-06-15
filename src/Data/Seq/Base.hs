@@ -163,6 +163,27 @@ viewGeneralTail sa ns = fmap (\s-> viewGeneral s ns) $ Seq.tails sa
 viewGeneralLTail :: (Eq a, Hashable a) => Seq a -> NextSeq a -> Seq (Seq a, [Seq a])
 viewGeneralLTail sa ns = fmap (\s-> viewGeneralL s ns) $ Seq.tails sa
 
+{-
+viewGeneralLOR :: (Eq a, Hashable a) => Seq [a] -> NextSeq [a] -> (Seq [a], [Seq [a]])
+viewGeneralLOR sa ns = let
+   km = HMap.keys $ generalPatternNS ns
+   ks = HSet.toList $ uneqPattern ns
+   (t,kIn) = Fold.foldl 
+      (\ (x1,y1) (x2,y2) -> if x1 > x2 then (x1,y1) else (x2,y2)) 
+      (0,Seq.Empty) $ fmap (\k -> (distanceSeq sa k, k) ) km
+   ksIn = maybe [] id $ fmap HSet.toList $ (generalPatternNS ns) HMap.!? kIn
+   -- ksAll = ks ++ ksIn
+   (t2,k2) = Fold.foldl 
+      (\ (x1,y1) (x2,y2) -> if x1 > x2 then (x1,y1) else 
+         if x1 == x2 then (x1, y1 ++ y2) else (x2,y2) ) 
+      (0,[]) $ fmap (\k -> (distanceSeq sa k, [k]) ) ks
+   (t3,k3) = Fold.foldl 
+      (\ (x1,y1) (x2,y2) -> if x1 > x2 then (x1,y1) else 
+         if x1 == x2 then (x1, y1 ++ y2) else (x2,y2) ) 
+      (0,[]) $ fmap (\k -> (distanceSeq sa k, [k]) ) ksIn
+   in if t < t2 then (kIn,[kIn]) else if t2 < t3 then (kIn,k3) else (Seq.Empty,k2)
+-}
+
 data ViewSeqTail a = ViewSeqTail
    { -- context :: Seq a
      suggestion :: Seq a
@@ -210,16 +231,18 @@ contextUp tvs mc na = do
 
 -- Ben Azai looked and died.
 -- Check past suggestion if not died, memrize that.
-checkSuggestion :: (Eq a, Hashable a) => TVar (Seq a) -> TVar (Seq (Seq a, [ViewSeqTail a])) -> IO (Seq a)
+checkSuggestion :: (Eq a, Hashable a, Show a) => TVar (Seq a) -> TVar (Seq (Seq a, [ViewSeqTail a])) -> IO (Seq a)
 checkSuggestion tvs tvsugg = do
    cc <- readTVarIO tvs
    cs <- readTVarIO tvsugg
-   if not $ Seq.null cc || Seq.null cs
+   if not $ Seq.null cc && Seq.null cs
       then do
          let lastA = fromJust $ cc Seq.!? ((Seq.length cc) - 1)
 	 hss <- fmap (Fold.foldl HSet.union HSet.empty) $ mapM (\(sc,lvst) -> do
 	    ls <- fmap catMaybes $ mapM (\ vst -> do
 	       let was = withoutappend vst
+               putStrLn $ "Full:Suggestion: " ++ (show $ suggestion vst)
+	       putStrLn $ "Suggestion: " ++ (show was)
 	       if Seq.null was then return Nothing
 	          else do
 		     let firstA = fromJust $ was Seq.!? 0
@@ -230,7 +253,13 @@ checkSuggestion tvs tvsugg = do
 	    return hss
 	    ) cs
 	 let (midle, _, _) = generalizationPattern 0.2 hss
-	 return midle
+         putStrLn $ "Length midle: " ++ (show $ Seq.length midle)
+         putStrLn $ "Length HashSet: " ++ (show $ HSet.size hss)
+	 if Seq.null midle
+	    then if HSet.null hss
+	       then return Seq.empty
+	       else return $ head $ HSet.toList hss
+	    else return midle
       else return Seq.Empty
 -- checkView
 
@@ -240,6 +269,14 @@ updatePowSuggestion mshs sa = do
       if Seq.null sa then return Nothing
          else do
 	    shsStep shs sa
+      ) mshs
+
+updatePowSuggestionList ::  (Eq a, Hashable a, Show a) => Maybe (SuggestionHandlerSimple (Seq a)) -> Seq a -> IO [Seq a]
+updatePowSuggestionList mshs sa = do
+   fmap join $ mapM (\shs-> do
+      if Seq.null sa then return Nothing
+         else do
+	    shsStepList shs sa
       ) mshs
 
 lerningS :: (Eq a, Hashable a) => 
@@ -270,26 +307,38 @@ checkView sh ts mS tvc tvs tns = do
    cs <- readTVarIO tvs 
    ns <- readTVarIO tns
    let nssvst = viewGeneralLTailUp cc ns
-   if (Seq.null ts || Seq.null nssvst)  
+   -- putStrLn $ "Length suggestion: " ++ (Seq.length nssvst)
+   if Seq.null ts -- && (and $ Fold.fold $ fmap ((:[]) . and . fmap (Seq.null . withoutappend) . snd) nssvst)
       then do
          lerningS sh tvc tns
          let nssvst2 = viewGeneralLTailUp cc ns
          atomically $ writeTVar tvs nssvst2
+	 putStrLn "Lern"
 	 return Nothing
       else do
+         -- let nssvst = fmap (\(x,y) fmap (\) y) nssvst'
          s <- maybe 
 	    ( do
 	       --let hss = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap (HSet.singleton . withoutappend) . snd) nssvst
-	       let hswa = fmap (foldl HMap.union HMap.empty . fmap (\x-> HMap.singleton x (withoutappend x) ) . snd) nssvst
+	       let hswa = Fold.foldl HMap.union HMap.empty $ fmap (Fold.foldl HMap.union HMap.empty . fmap (\x-> HMap.singleton (suggestion x) (withoutappend x) ) . snd) nssvst
 	       let hss = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap (HSet.singleton . suggestion) . snd) nssvst
                let (midle, _, _) = generalizationPattern 0.2 hss
-	       return $ midle
+	       let sn = maybe Seq.empty id $ hswa HMap.!? midle
+	       if Seq.null sn then return $ f nssvst 0 0
+	          else return sn
 	    ) 
 	    return $ join $ fmap (\s-> if Seq.null s then Nothing else Just s) mS
          atomically $ writeTVar tvs nssvst 
-	 if Seq.null s then return Nothing
+	 if Seq.null s then return $ ts Seq.!? 0 --Nothing
 	    else return $ s Seq.!? 0
-
+   where
+      
+      f nssvst i j 
+         | Seq.length nssvst <= i = Seq.empty
+	 | P.length (snd $ Seq.index nssvst i) <= j = f nssvst (i + 1) 0
+      f nssvst i j = if Seq.null sn then f nssvst i (j+1) else sn
+         where
+	    sn = (withoutappend $ (\l-> l P.!! j) $ snd $ Seq.index nssvst i)
 {-
 Бен Азай взглянул и умер. 
 Бен Зома взглянул и повредился [в уме]. 
@@ -317,6 +366,23 @@ shsStep shs a = do
    mncs <- updatePowSuggestion (shsPowSuggestion shs) cs
    checkView shs cs mncs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
    -- Rabbi Akiva "entered in peace and left in peace."
+
+shsStepList :: (Eq a, Hashable a, Show a) => 
+   SuggestionHandlerSimple a ->
+   a -> 
+   IO [a]
+shsStepList shs a = do
+   -- Ben Azai looked and died.
+   contextUp (shsCurrentContext shs) (shsMaxContext shs) a
+   -- Ben Zoma looked and was damaged [in his mind].
+   cs <- checkSuggestion (shsCurrentContext shs) (shsCurrentSuggestion shs)
+   --putStrLn "CheckSuggestion"
+   --putStrLn $ show cs
+   -- Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a desire to comprehend something greater than is possible for human understanding).
+   mncs <- updatePowSuggestion (shsPowSuggestion shs) cs
+   checkView shs cs mncs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
+   -- Rabbi Akiva "entered in peace and left in peace."
+
 
 shsInit :: (Eq a, Hashable a, Show a) =>
    Maybe (SuggestionHandlerSimple (Seq a)) ->
