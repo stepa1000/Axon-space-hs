@@ -40,6 +40,7 @@ import Data.Sequence as Seq
 import Data.Monoid
 import Data.Hashable
 import Data.Maybe
+import Data.List
 -- import Control.Monad.LogicState
 
 import Data.Axon.Base.Types
@@ -262,7 +263,37 @@ checkSuggestion tvs tvsugg = do
 	    else return midle
       else return Seq.Empty
 -- checkView
-
+{-checkSuggestionList :: (Eq a, Hashable a, Show a) => TVar (Seq a) -> TVar (Seq (Seq a, [ViewSeqTail a])) -> IO [Seq a]
+checkSuggestionList tvs tvsugg = do
+   cc <- readTVarIO tvs
+   cs <- readTVarIO tvsugg
+   if not $ Seq.null cc && Seq.null cs
+      then do
+         let lastA = fromJust $ cc Seq.!? ((Seq.length cc) - 1)
+	 hss <- fmap (Fold.foldl HSet.union HSet.empty) $ mapM (\(sc,lvst) -> do
+	    ls <- fmap catMaybes $ mapM (\ vst -> do
+	       let was = withoutappend vst
+               putStrLn $ "Full:Suggestion: " ++ (show $ suggestion vst)
+	       putStrLn $ "Suggestion: " ++ (show was)
+	       if Seq.null was then return Nothing
+	          else do
+		     let firstA = fromJust $ was Seq.!? 0
+		     if lastA == firstA then return $ Just was
+		        else return Nothing
+	       ) lvst
+	    let hss = Fold.foldl HSet.union HSet.empty $ fmap HSet.singleton ls
+	    return hss
+	    ) cs
+	 let (midle, _, _) = generalizationPattern 0.2 hss
+         putStrLn $ "Length midle: " ++ (show $ Seq.length midle)
+         putStrLn $ "Length HashSet: " ++ (show $ HSet.size hss)
+	 if Seq.null midle
+	    then if HSet.null hss
+	       then return Seq.empty
+	       else return $ head $ HSet.toList hss
+	    else return midle
+      else return Seq.Empty
+-}
 updatePowSuggestion ::  (Eq a, Hashable a, Show a) => Maybe (SuggestionHandlerSimple (Seq a)) -> Seq a -> IO (Maybe (Seq a))
 updatePowSuggestion mshs sa = do
    fmap join $ mapM (\shs-> do
@@ -332,13 +363,43 @@ checkView sh ts mS tvc tvs tns = do
 	 if Seq.null s then return $ ts Seq.!? 0 --Nothing
 	    else return $ s Seq.!? 0
    where
-      
       f nssvst i j 
          | Seq.length nssvst <= i = Seq.empty
 	 | P.length (snd $ Seq.index nssvst i) <= j = f nssvst (i + 1) 0
       f nssvst i j = if Seq.null sn then f nssvst i (j+1) else sn
          where
 	    sn = (withoutappend $ (\l-> l P.!! j) $ snd $ Seq.index nssvst i)
+
+checkViewList :: (Eq a, Hashable a) =>
+   SuggestionHandlerSimple a ->
+   Seq a -> 
+   [Seq a] -> 
+   TVar (Seq a) -> 
+   TVar (Seq (Seq a, [ViewSeqTail a])) ->
+   TVar (NextSeq a) ->
+   IO [a]
+checkViewList sh ts mS tvc tvs tns = do
+   cc <- readTVarIO tvc
+   cs <- readTVarIO tvs 
+   ns <- readTVarIO tns
+   let nssvst = viewGeneralLTailUp cc ns
+   -- putStrLn $ "Length suggestion: " ++ (Seq.length nssvst)
+   if Seq.null ts -- && (and $ Fold.fold $ fmap ((:[]) . and . fmap (Seq.null . withoutappend) . snd) nssvst)
+      then do
+         lerningS sh tvc tns
+         let nssvst2 = viewGeneralLTailUp cc ns
+         atomically $ writeTVar tvs nssvst2
+	 putStrLn "Lern"
+	 return Nothing
+      else do
+         -- let nssvst = fmap (\(x,y) fmap (\) y) nssvst'
+	 --let hswa = Fold.foldl HMap.union HMap.empty $ fmap (Fold.foldl HMap.union HMap.empty . fmap (\x-> HMap.singleton (suggestion x) (withoutappend x) ) . snd) nssvst
+	 let hsswa = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap ((\x-> if Seq.null x then HSet.empty else HSet.singleton x) . withoutappend) . snd) nssvst
+         let hsSn = Fold.foldl HSet.union HSet.empty $ fmap (\s-> if Seq.null s then HSet.empty else HSet.singleton s) mS
+	 let hsswa' = HSet.map (\wa-> Seq.index wa 0) hsswa
+	 let hsSn' = HSet.map (\wa-> Seq.index wa 0) hsSn
+         atomically $ writeTVar tvs nssvst 
+         return $ HSet.toList $ HSet.union hsswa' hsSn'
 {-
 Бен Азай взглянул и умер. 
 Бен Зома взглянул и повредился [в уме]. 
@@ -383,7 +444,6 @@ shsStepList shs a = do
    checkView shs cs mncs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
    -- Rabbi Akiva "entered in peace and left in peace."
 
-
 shsInit :: (Eq a, Hashable a, Show a) =>
    Maybe (SuggestionHandlerSimple (Seq a)) ->
    MaxContext -> 
@@ -397,6 +457,42 @@ shsInit mshss mc me gr rp = do
    tcs <- newTVarIO Seq.Empty
    return $ SuggestionHandlerSimple
       tcc tcns tcs mshss mc me rp gr
+
+data StSuggestion a = StSuggestion
+   { stsContext :: Seq a
+   , stsCurrentSuggestion :: Seq (Seq a, [ViewSeqTail a])
+   }
+
+type AdjStSugL a = Env (StSuggestion a)
+
+type AdjStSugR a = Reader (StSuggestion a)
+
+type AdjWStSug a w = W.AdjointT (AdjStSugL a) (AdjStSugR a) w
+
+type CoFreeStSug a w = Cofree ((AdjWStSug a w) :.: List)
+
+initCoFreeStSug :: (Eq a, Hashable a, Show a, Comonad w) =>
+   (SuggestionHandlerSimple a, a) -> 
+   IO (CoFreeStSug a w a)
+initCoFreeStSug p = unfoldM f $ (\(x,y) -> (x,y) p
+   where {-
+      f (shs, a) = do
+         cc <- readTVarIO $ shsCurrentContext shs
+         cs <- readTVarIO $ shsCurrentSuggestion shs
+         return $ ((case ma of 
+	    Just a -> Seq.singleton a
+	    Nothing -> Seq.empty) , (adjEnv (StSuggestion cc cs)) :.: [])-}
+      f (shs, a) = do
+         cc <- readTVarIO $ shsCurrentContext shs
+         cs <- readTVarIO $ shsCurrentSuggestion shs
+         la <- shsStepList shs a
+	 let ls = la
+	 return $ (a, Comp1 $ (adjEnv (StSuggestion cc cs)) $ fmap (\x-> (shs,x)) ls)
+
+treeSug :: CoFreeStSug a w a -> Tree a
+treeSug (a :< (Comp1 wla)) = Tree a (fmap treeSug $ extract wla)
+
+
 
 data SuggestionHandler a = SuggestionHandler
    { inputA :: IO a
