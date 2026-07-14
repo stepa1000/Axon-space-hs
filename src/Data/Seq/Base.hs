@@ -263,7 +263,8 @@ checkSuggestion tvs tvsugg = do
 	    else return midle
       else return Seq.Empty
 -- checkView
-{-checkSuggestionList :: (Eq a, Hashable a, Show a) => TVar (Seq a) -> TVar (Seq (Seq a, [ViewSeqTail a])) -> IO [Seq a]
+
+checkSuggestionList :: (Eq a, Hashable a, Show a) => TVar (Seq a) -> TVar (Seq (Seq a, [ViewSeqTail a])) -> IO [Seq a]
 checkSuggestionList tvs tvsugg = do
    cc <- readTVarIO tvs
    cs <- readTVarIO tvsugg
@@ -287,13 +288,9 @@ checkSuggestionList tvs tvsugg = do
 	 let (midle, _, _) = generalizationPattern 0.2 hss
          putStrLn $ "Length midle: " ++ (show $ Seq.length midle)
          putStrLn $ "Length HashSet: " ++ (show $ HSet.size hss)
-	 if Seq.null midle
-	    then if HSet.null hss
-	       then return Seq.empty
-	       else return $ head $ HSet.toList hss
-	    else return midle
+	 return $ HSet.toList hss
       else return Seq.Empty
--}
+
 updatePowSuggestion ::  (Eq a, Hashable a, Show a) => Maybe (SuggestionHandlerSimple (Seq a)) -> Seq a -> IO (Maybe (Seq a))
 updatePowSuggestion mshs sa = do
    fmap join $ mapM (\shs-> do
@@ -390,7 +387,7 @@ checkViewList sh ts mS tvc tvs tns = do
          let nssvst2 = viewGeneralLTailUp cc ns
          atomically $ writeTVar tvs nssvst2
 	 putStrLn "Lern"
-	 return Nothing
+	 return [] -- Nothing
       else do
          -- let nssvst = fmap (\(x,y) fmap (\) y) nssvst'
 	 --let hswa = Fold.foldl HMap.union HMap.empty $ fmap (Fold.foldl HMap.union HMap.empty . fmap (\x-> HMap.singleton (suggestion x) (withoutappend x) ) . snd) nssvst
@@ -440,8 +437,8 @@ shsStepList shs a = do
    --putStrLn "CheckSuggestion"
    --putStrLn $ show cs
    -- Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a desire to comprehend something greater than is possible for human understanding).
-   mncs <- updatePowSuggestion (shsPowSuggestion shs) cs
-   checkView shs cs mncs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
+   mncs <- updatePowSuggestionList (shsPowSuggestion shs) cs
+   checkViewList shs cs mncs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
    -- Rabbi Akiva "entered in peace and left in peace."
 
 shsInit :: (Eq a, Hashable a, Show a) =>
@@ -474,7 +471,7 @@ type CoFreeStSug a w = Cofree ((AdjWStSug a w) :.: List)
 initCoFreeStSug :: (Eq a, Hashable a, Show a, Comonad w) =>
    (SuggestionHandlerSimple a, a) -> 
    IO (CoFreeStSug a w a)
-initCoFreeStSug p = unfoldM f $ (\(x,y) -> (x,y) p
+initCoFreeStSug p = unfoldM f $ (\(x,y) -> (x,y)) p
    where {-
       f (shs, a) = do
          cc <- readTVarIO $ shsCurrentContext shs
@@ -486,161 +483,13 @@ initCoFreeStSug p = unfoldM f $ (\(x,y) -> (x,y) p
          cc <- readTVarIO $ shsCurrentContext shs
          cs <- readTVarIO $ shsCurrentSuggestion shs
          la <- shsStepList shs a
+         cc' <- readTVarIO $ shsCurrentContext shs
+         cs' <- readTVarIO $ shsCurrentSuggestion shs
+	 atomically $ writeTVar (shsCurrentContext shs) cc
+	 atomically $ writeTVar (shsCurrentSuggestion shs) cs
 	 let ls = la
-	 return $ (a, Comp1 $ (adjEnv (StSuggestion cc cs)) $ fmap (\x-> (shs,x)) ls)
+	 return $ (a, Comp1 $ (adjEnv (StSuggestion cc' cs')) $ fmap (\x-> (shs,x)) ls)
 
 treeSug :: CoFreeStSug a w a -> Tree a
 treeSug (a :< (Comp1 wla)) = Tree a (fmap treeSug $ extract wla)
 
-
-
-data SuggestionHandler a = SuggestionHandler
-   { inputA :: IO a
-   , outputA :: a -> IO ()
-   , suggestionView :: Seq a -> IO ()
-   , currentContext :: TVar (Seq a)
-   , currentNextSeq :: TVar (NextSeq a)
-   , currentSuggestion :: TVar (Seq a)
-   --, currentFullSuggestion :: TVar (Seq a)
-   --, currentElementSuggestion :: TVar (Seq a)
-   , maxContext :: MaxContext
-   , maxError :: MaxError
-   , shGeneralRadius :: GeneralRadius
-   , shRadiusPattern :: RadiusPattern
-   {-, shPowerSuggestion :: HashMap Hash (SuggestionHandler Hash)
-   , shPSInput :: TVar Hash
-   , shPSOutput :: TMVar Hash
-   , shGeneralSuggestion :: Maybe (SuggestionHandler Hash)
-   , shGSInput :: TVar Hash
-   , shGSOutput :: TMVar Hash-}
-   }
-{-
-type NotSuggestion gs bs m = LogicStateT gs bs m ()
-
-class Suggstion gs bs a where
-   lNextSeq :: Lens' gs (NextSeq a)
-   lCurrentSuggestion :: Lens' bs (Seq a)
--}
-
-addContext :: (MonadIO m, Eq a, Hashable a) => 
-   SuggestionHandler a -> m a
-addContext sh = do
-   na <- liftIO $ inputA sh
-   liftIO $ atomically $ modifyTVar (currentContext sh) (:|> na)
-   liftIO $ atomically $ modifyTVar (currentContext sh) 
-      (\s-> if Seq.length s > (maxContext sh) then f $ viewl s else s)
-   return na 
-   where
-      f (_ Seq.:< s) = s
-      f _ = Seq.Empty
-
-zeroSuggestion :: (MonadIO m, Eq a, Hashable a) => 
-   SuggestionHandler a -> m () -- LogicStateT gs bs m () -- (NotSuggestion gs bs m)
-zeroSuggestion sh = do
-   -- notS <- once $ backtrackWithRoll (\ _ _ -> return $ zeroBs sh) $ return () 
-   na <- addContext sh
-   -- (gs,bs) <- get
-   ns <- liftIO $ readTVarIO (currentNextSeq sh)
-   if not $ HMap.null $ generalPatternNS ns
-      then do 
-         ccn <- liftIO $ readTVarIO (currentContext sh)
-         let (cs,_,_) = generalizationPattern (shGeneralRadius sh) $ Fold.foldl (HSet.union) HSet.empty $ fmap (HSet.singleton . snd) $ viewTailNoIn ccn ns
-         let mnextA = cs Seq.!? 0 -- (Seq.length ccn)
-         mapM (\nextA-> liftIO $ (outputA sh) nextA) mnextA
-	 liftIO $ atomically $ writeTVar (currentSuggestion sh) cs 
-	 return ()
-      else return ()
-   where
-      f (_ Seq.:< s) = s
-      f _ = Seq.Empty
-{-
-stepSuggestion :: (MonadIO m, Eq a, Hashable a) => 
-   SuggestionHandler a -> m () -- LogicStateT gs bs m () -- (NotSuggestion gs bs m)
-stepSuggestion sh = do
-   -- notS <- once $ backtrackWithRoll (\ _ _ -> return $ zeroBs sh) $ return () 
-   na <- addContext
-   -- (gs,bs) <- get
-   ns <- liftIO $ readTVarIO (currentNextSeq sh)
-   if not $ HMap.null $ generalPatternNS ns
-      then do 
-         csp <- liftIO $ readTVarIO (currentSuggestion sh)
-	 cfsp <- liftIO $ readTVarIO (currentFullSuggestion sh)
-	 cesp <- liftIO $ readTVarIO (currentElementSuggestion sh)
-         ccn <- liftIO $ readTVarIO (currentContext sh)
-         let mpastA = csp Seq.!? 0
-	 mHashFS <- mapM (\ pastA -> do
-	    if ns == pastaA
-	       then do 
-	          fmap join $ mapM (\shh-> do
-	             let hashCFSP = hash cfsp
-                     liftIO $ atomically $ writeTVar (shGSInput sh) hashCFSP
-                     stepSuggestion shh
-		     hashOut <- liftIO $ atomically $ readTMVar (shGSOutput sh)
-                     let mlocalSH = (\x-> (shPowerSuggestion sh) HMap.!? x) =<< hashOut
-		     mlH <- fmap join $ mapM (\lSH -> do
-		        let hashCFSP = hash cesp
-                        liftIO $ atomically $ writeTVar (shPSInput sh) hashCFSP
-                        stepSuggestion lSH
-		        hashOut <- liftIO $ atomically $ readTMVar (shPSOutput sh)
-			return hashOut
-		        ) mlocalSH
-                     return $ (do 
-		        x <- hashOut 
-			return (x,mlH))
-		  ) (shGeneralSuggestion sh)
-	       else return Nothing
-	    ) mpastA
-	 let vtw = viewGeneralTail ccn ns
-	 vtw2 <- maybe (return vtw) id (fmap (\ (hFS,mlh)
-	       maybe (return vtw) id (fmap (\lh-> do
-	          return $ Seq.filter (\(x,y) -> hash y == lh ) vtw
-		  ) mlh)
-	       ) mHahsFS
-	    )
-         -- let (cs,_,_) = generalizationPattern (shGeneralRadius sh) $ Fold.foldl (HSet.union) HSet.empty $ fmap (HSet.singleton . snd) $ viewTailNoIn ccn ns
-         (cfs,ces) <- do
-	    if Seq.length vtw2 == 1
-	       then return $ vtw2 Seq.index 0
-	       else do
-                  let l = Seq.length vtw2
-                  i <- liftIO $ randomRIO (0,l - 1)
-		  return $ vtw2 Seq.index i
-	 -- rigth now i need do thet buuuut .... 
-	 let mnextA = cs Seq.!? 0 -- (Seq.length ccn)
-         mapM (\nextA-> liftIO $ (outputA sh) nextA) mnextA
-	 liftIO $ atomically $ writeTVar (currentSuggestion sh) cs 
-	 return ()
-      else return ()
-   where
-      f (_ Seq.:< s) = s
-      f _ = Seq.Empty
--}
-
--- type LerningSuggestion gs bs m = LogicStateT gs bs m ()
-
-lerningSuggestion :: (MonadIO m, Eq a, Hashable a) => 
-   SuggestionHandler a -> m () -- (LerningSuggestion gs bs m)
-lerningSuggestion sh = do
-   -- lS <- once $ backtrack $ return () 
-   ccn <- liftIO $ readTVarIO (currentContext sh)
-   csn <- liftIO $ readTVarIO (currentSuggestion sh)
-   if Seq.length ccn >= (maxContext sh) && distanceSeq ccn (Seq.take (maxContext sh) csn) < (maxError sh)
-      then do
-         let nns = generalPattern (shGeneralRadius sh) $ generationPattern (shRadiusPattern sh) ccn
-         liftIO $ atomically $ modifyTVar (currentNextSeq sh) (\ns ->
-	          ns { generalPatternNS = HMap.unionWith (HSet.union) (generalPatternNS ns) (generalPatternNS nns)
-		      , uneqPattern = (HSet.union) (uneqPattern ns) (uneqPattern nns)
-		      }
-		  )
-         return ()
-      else do
-	 return ()
-
-updateZLSuggestion :: (MonadIO m, Eq a, Hashable a) => 
-   SuggestionHandler a -> m ()
-updateZLSuggestion sh = do
-   zeroSuggestion sh
-   csn <- liftIO $ readTVarIO (currentSuggestion sh)
-   liftIO $ (suggestionView sh) csn
-   lerningSuggestion sh
-   updateZLSuggestion sh
