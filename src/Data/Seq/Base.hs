@@ -213,7 +213,7 @@ data SuggestionHandlerSimple a = SuggestionHandlerSimple
    { shsCurrentContext :: TVar (Seq a)
    , shsCurrentnextSeq :: TVar (NextSeq a)
    , shsCurrentSuggestion :: TVar (Seq (Seq a, [ViewSeqTail a]))
-   , shsPowSuggestion :: Maybe (SuggestionHandlerSimple (Seq a))
+   --, shsPowSuggestion :: Maybe (SuggestionHandlerSimple (Seq a))
    , shsMaxContext :: MaxContext
    , shsMaxError :: MaxError
    , shsRadiusPattern :: RadiusPattern
@@ -223,6 +223,15 @@ data SuggestionHandlerSimple a = SuggestionHandlerSimple
 contextUp ::  (Eq a, Hashable a) => TVar (Seq a) -> MaxContext -> a -> IO ()
 contextUp tvs mc na = do
    atomically $ modifyTVar tvs (:|> na)
+   atomically $ modifyTVar tvs 
+      (\s-> if Seq.length s > mc then f $ viewl s else s)
+   return ()
+   where
+      f (_ Seq.:< s) = s
+      f _ = Seq.Empty
+
+lengthUp :: (Eq a, Hashable a) => TVar (Seq a) -> MaxContext -> IO ()
+lengthUp tvs mc = do
    atomically $ modifyTVar tvs 
       (\s-> if Seq.length s > mc then f $ viewl s else s)
    return ()
@@ -290,7 +299,7 @@ checkSuggestionList tvs tvsugg = do
          putStrLn $ "Length HashSet: " ++ (show $ HSet.size hss)
 	 return $ HSet.toList hss
       else return Seq.Empty
-
+{-
 updatePowSuggestion ::  (Eq a, Hashable a, Show a) => Maybe (SuggestionHandlerSimple (Seq a)) -> Seq a -> IO (Maybe (Seq a))
 updatePowSuggestion mshs sa = do
    fmap join $ mapM (\shs-> do
@@ -299,14 +308,14 @@ updatePowSuggestion mshs sa = do
 	    shsStep shs sa
       ) mshs
 
-updatePowSuggestionList ::  (Eq a, Hashable a, Show a) => Maybe (SuggestionHandlerSimple (Seq a)) -> Seq a -> IO [Seq a]
+updatePowSuggestionList ::  (Eq a, Hashable a, Show a) => Maybe (SuggestionHandlerSimple (Seq a)) -> [Seq a] -> IO [Seq a]
 updatePowSuggestionList mshs sa = do
    fmap join $ mapM (\shs-> do
-      if Seq.null sa then return Nothing
+      if P.null sa then return Nothing
          else do
 	    shsStepList shs sa
       ) mshs
-
+-}
 lerningS :: (Eq a, Hashable a) => 
    SuggestionHandlerSimple a ->
    TVar (Seq a) -> 
@@ -321,7 +330,7 @@ lerningS sh tcc tns = do
 	      , uneqPattern = (HSet.union) (uneqPattern ns) (uneqPattern nns)
 	      }
 	  )
-
+{-
 checkView :: (Eq a, Hashable a) =>
    SuggestionHandlerSimple a ->
    Seq a -> 
@@ -341,7 +350,7 @@ checkView sh ts mS tvc tvs tns = do
          lerningS sh tvc tns
          let nssvst2 = viewGeneralLTailUp cc ns
          atomically $ writeTVar tvs nssvst2
-	 putStrLn "Lern"
+	 --putStrLn "Lern"
 	 return Nothing
       else do
          -- let nssvst = fmap (\(x,y) fmap (\) y) nssvst'
@@ -366,16 +375,16 @@ checkView sh ts mS tvc tvs tns = do
       f nssvst i j = if Seq.null sn then f nssvst i (j+1) else sn
          where
 	    sn = (withoutappend $ (\l-> l P.!! j) $ snd $ Seq.index nssvst i)
-
+-}
 checkViewList :: (Eq a, Hashable a) =>
    SuggestionHandlerSimple a ->
    Seq a -> 
-   [Seq a] -> 
+--   [Seq a] -> 
    TVar (Seq a) -> 
    TVar (Seq (Seq a, [ViewSeqTail a])) ->
    TVar (NextSeq a) ->
    IO [a]
-checkViewList sh ts mS tvc tvs tns = do
+checkViewList sh ts {-mS-} tvc tvs tns = do
    cc <- readTVarIO tvc
    cs <- readTVarIO tvs 
    ns <- readTVarIO tns
@@ -386,17 +395,49 @@ checkViewList sh ts mS tvc tvs tns = do
          lerningS sh tvc tns
          let nssvst2 = viewGeneralLTailUp cc ns
          atomically $ writeTVar tvs nssvst2
-	 putStrLn "Lern"
+	 --putStrLn "Lern"
 	 return [] -- Nothing
       else do
          -- let nssvst = fmap (\(x,y) fmap (\) y) nssvst'
 	 --let hswa = Fold.foldl HMap.union HMap.empty $ fmap (Fold.foldl HMap.union HMap.empty . fmap (\x-> HMap.singleton (suggestion x) (withoutappend x) ) . snd) nssvst
 	 let hsswa = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap ((\x-> if Seq.null x then HSet.empty else HSet.singleton x) . withoutappend) . snd) nssvst
-         let hsSn = Fold.foldl HSet.union HSet.empty $ fmap (\s-> if Seq.null s then HSet.empty else HSet.singleton s) mS
+         -- let hsSn = Fold.foldl HSet.union HSet.empty $ fmap (\s-> if Seq.null s then HSet.empty else HSet.singleton s) mS
 	 let hsswa' = HSet.map (\wa-> Seq.index wa 0) hsswa
-	 let hsSn' = HSet.map (\wa-> Seq.index wa 0) hsSn
+	 -- let hsSn' = HSet.map (\wa-> Seq.index wa 0) hsSn
          atomically $ writeTVar tvs nssvst 
-         return $ HSet.toList $ HSet.union hsswa' hsSn'
+         return $ HSet.toList hsswa'
+
+checkViewListNoLern :: (Eq a, Hashable a) =>
+   SuggestionHandlerSimple a ->
+   Seq a -> 
+--   [Seq a] -> 
+   TVar (Seq a) -> 
+   TVar (Seq (Seq a, [ViewSeqTail a])) ->
+   TVar (NextSeq a) ->
+   IO [a]
+checkViewListNoLern sh ts {-mS-} tvc tvs tns = do
+   cc <- readTVarIO tvc
+   cs <- readTVarIO tvs 
+   ns <- readTVarIO tns
+   let nssvst = viewGeneralLTailUp cc ns
+   -- putStrLn $ "Length suggestion: " ++ (Seq.length nssvst)
+   if Seq.null ts -- && (and $ Fold.fold $ fmap ((:[]) . and . fmap (Seq.null . withoutappend) . snd) nssvst)
+      then do
+         --lerningS sh tvc tns
+         --let nssvst2 = viewGeneralLTailUp cc ns
+         --atomically $ writeTVar tvs nssvst2
+	 --putStrLn "Lern"
+	 return [] -- Nothing
+      else do
+         -- let nssvst = fmap (\(x,y) fmap (\) y) nssvst'
+	 --let hswa = Fold.foldl HMap.union HMap.empty $ fmap (Fold.foldl HMap.union HMap.empty . fmap (\x-> HMap.singleton (suggestion x) (withoutappend x) ) . snd) nssvst
+	 let hsswa = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap ((\x-> if Seq.null x then HSet.empty else HSet.singleton x) . withoutappend) . snd) nssvst
+         --let hsSn = Fold.foldl HSet.union HSet.empty $ fmap (\s-> if Seq.null s then HSet.empty else HSet.singleton s) mS
+	 let hsswa' = HSet.map (\wa-> Seq.index wa 0) hsswa
+	 --let hsSn' = HSet.map (\wa-> Seq.index wa 0) hsSn
+         atomically $ writeTVar tvs nssvst 
+         return $ HSet.toList hsswa'
+
 {-
 Бен Азай взглянул и умер. 
 Бен Зома взглянул и повредился [в уме]. 
@@ -408,7 +449,7 @@ Ben Zoma looked and was damaged [in his mind].
 Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a desire to comprehend something greater than is possible for human understanding).
 Rabbi Akiva "entered in peace and left in peace."
 -}
-
+{-
 shsStep :: (Eq a, Hashable a, Show a) => 
    SuggestionHandlerSimple a ->
    a -> 
@@ -421,10 +462,10 @@ shsStep shs a = do
    --putStrLn "CheckSuggestion"
    --putStrLn $ show cs
    -- Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a desire to comprehend something greater than is possible for human understanding).
-   mncs <- updatePowSuggestion (shsPowSuggestion shs) cs
+   --mncs <- updatePowSuggestion (shsPowSuggestion shs) cs
    checkView shs cs mncs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
    -- Rabbi Akiva "entered in peace and left in peace."
-
+-}
 shsStepList :: (Eq a, Hashable a, Show a) => 
    SuggestionHandlerSimple a ->
    a -> 
@@ -433,27 +474,44 @@ shsStepList shs a = do
    -- Ben Azai looked and died.
    contextUp (shsCurrentContext shs) (shsMaxContext shs) a
    -- Ben Zoma looked and was damaged [in his mind].
-   cs <- checkSuggestion (shsCurrentContext shs) (shsCurrentSuggestion shs)
+   csl <- checkSuggestionList (shsCurrentContext shs) (shsCurrentSuggestion shs)
    --putStrLn "CheckSuggestion"
    --putStrLn $ show cs
    -- Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a desire to comprehend something greater than is possible for human understanding).
-   mncs <- updatePowSuggestionList (shsPowSuggestion shs) cs
-   checkViewList shs cs mncs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
+   --mncs <- updatePowSuggestionList (shsPowSuggestion shs) csl
+   checkViewList shs cs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
    -- Rabbi Akiva "entered in peace and left in peace."
 
+shsStepListNL :: (Eq a, Hashable a, Show a) => 
+   SuggestionHandlerSimple a ->
+   a -> 
+   IO [a]
+shsStepListNL shs a = do
+   -- Ben Azai looked and died.
+   contextUp (shsCurrentContext shs) (shsMaxContext shs) a
+   -- Ben Zoma looked and was damaged [in his mind].
+   csl <- checkSuggestionList (shsCurrentContext shs) (shsCurrentSuggestion shs)
+   --putStrLn "CheckSuggestion"
+   --putStrLn $ show cs
+   -- Elisha ben Abuya began to “pluck up seedlings” (Maimonides sees in this a desire to comprehend something greater than is possible for human understanding).
+   --mncs <- updatePowSuggestionList (shsPowSuggestion shs) csl
+   checkViewListNoLern shs cs (shsCurrentContext shs) (shsCurrentSuggestion shs) (shsCurrentnextSeq shs)
+   -- Rabbi Akiva "entered in peace and left in peace."
+
+
 shsInit :: (Eq a, Hashable a, Show a) =>
-   Maybe (SuggestionHandlerSimple (Seq a)) ->
+   --Maybe (SuggestionHandlerSimple (Seq a)) ->
    MaxContext -> 
    MaxError ->
    GeneralRadius -> 
    RadiusPattern ->
    IO (SuggestionHandlerSimple a)
-shsInit mshss mc me gr rp = do
+shsInit {-mshss-} mc me gr rp = do
    tcc <- newTVarIO Seq.Empty
    tcns <- newTVarIO emptyNextSeq
    tcs <- newTVarIO Seq.Empty
    return $ SuggestionHandlerSimple
-      tcc tcns tcs mshss mc me rp gr
+      tcc tcns tcs {-mshss-} mc me rp gr
 
 data StSuggestion a = StSuggestion
    { stsContext :: Seq a
@@ -466,12 +524,16 @@ type AdjStSugR a = Reader (StSuggestion a)
 
 type AdjWStSug a w = W.AdjointT (AdjStSugL a) (AdjStSugR a) w
 
-type CoFreeStSug a w = Cofree ((AdjWStSug a w) :.: List)
+type CoFreeStSug a w = Cofree ((AdjWStSug a Identity) :.: List)
 
 initCoFreeStSug :: (Eq a, Hashable a, Show a, Comonad w) =>
    (SuggestionHandlerSimple a, a) -> 
    IO (CoFreeStSug a w a)
-initCoFreeStSug p = unfoldM f $ (\(x,y) -> (x,y)) p
+initCoFreeStSug p@(x,y) = dp
+   cc' <- readTVarIO $ shsCurrentContext shs
+   cs' <- readTVarIO $ shsCurrentSuggestion shs
+   let ss0 = StSuggestion cc' cs'
+   unfoldM f (x, ss0  ,y))
    where {-
       f (shs, a) = do
          cc <- readTVarIO $ shsCurrentContext shs
@@ -479,17 +541,49 @@ initCoFreeStSug p = unfoldM f $ (\(x,y) -> (x,y)) p
          return $ ((case ma of 
 	    Just a -> Seq.singleton a
 	    Nothing -> Seq.empty) , (adjEnv (StSuggestion cc cs)) :.: [])-}
-      f (shs, a) = do
-         cc <- readTVarIO $ shsCurrentContext shs
-         cs <- readTVarIO $ shsCurrentSuggestion shs
+      f (shs, ss, a) = do
+         atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
+	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
          la <- shsStepList shs a
          cc' <- readTVarIO $ shsCurrentContext shs
          cs' <- readTVarIO $ shsCurrentSuggestion shs
-	 atomically $ writeTVar (shsCurrentContext shs) cc
-	 atomically $ writeTVar (shsCurrentSuggestion shs) cs
+         atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
+	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
 	 let ls = la
-	 return $ (a, Comp1 $ (adjEnv (StSuggestion cc' cs')) $ fmap (\x-> (shs,x)) ls)
+	 let ss' = (StSuggestion cc' cs')
+	 return $ (a, Comp1 $ (adjEnv ss') $ fmap (\x-> (shs,ss',x)) ls)
+
+initCoFreeStSugNL :: (Eq a, Hashable a, Show a, Comonad w) =>
+   (SuggestionHandlerSimple a, a) -> 
+   IO (CoFreeStSug a w a)
+initCoFreeStSugNL p@(x,y) = dp
+   cc' <- readTVarIO $ shsCurrentContext shs
+   cs' <- readTVarIO $ shsCurrentSuggestion shs
+   let ss0 = StSuggestion cc' cs'
+   unfoldM f (x, ss0  ,y))
+   where {-
+      f (shs, a) = do
+         cc <- readTVarIO $ shsCurrentContext shs
+         cs <- readTVarIO $ shsCurrentSuggestion shs
+         return $ ((case ma of 
+	    Just a -> Seq.singleton a
+	    Nothing -> Seq.empty) , (adjEnv (StSuggestion cc cs)) :.: [])-}
+      f (shs, ss, a) = do
+         atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
+	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
+         la <- shsStepListNL shs a
+         cc' <- readTVarIO $ shsCurrentContext shs
+         cs' <- readTVarIO $ shsCurrentSuggestion shs
+         atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
+	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
+	 let ls = la
+	 let ss' = (StSuggestion cc' cs')
+	 return $ (a, Comp1 $ (adjEnv ss') $ fmap (\x-> (shs,ss',x)) ls)
+
 
 treeSug :: CoFreeStSug a w a -> Tree a
 treeSug (a :< (Comp1 wla)) = Tree a (fmap treeSug $ extract wla)
 
+seqSug :: Int -> Tree a -> [Seq a]
+seqSug i _ | i <= 0 = []
+seqSug i (Node a l) = (\x-> a :<| x) $ join $ fmap (seqSug i - 1) l

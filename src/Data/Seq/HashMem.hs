@@ -47,14 +47,57 @@ import Data.Axon.Base.Types
 import Data.Seq.Base
 
 data HashInterval a = HashInterval 
-   { currentSeq :: TVar (Seq a) 
+   { hiCurrentSeq :: TVar (Seq a) 
    , hashInterval :: Int
-   , hiSeq :: TVar (Seq Hash)
+   , hiIterator :: TVar Int
+   --, hiSeq :: TVar (Seq Hash)
    }
 
-data PowHI a = PowHI
-   { currentHI :: HashInterval a
-   , nextHI :: PowHI Hash 
+initHashInterval :: Int -> TVar (Seq a) -> IO (HashInterval a)
+initHashInterval i tvs = do
+   tck <- newTVarIO 0
+   tvsh <- newTVarIO Seq.Empty
+   return $ HashInterval tvs i tck tvsh
+
+updateHI :: HashInterval a -> SuggestionHandlerSimple Hash -> IO (CoFreeStSug Hash w Hash)
+updateHI hi shs = do
+  k <- readTVarIO $ hiIterator hi
+  if k => maxKr
+     then do
+        atomically $ writeTVar (hiIterator hi) 0
+        cs <- readTVarIO $ hiCurrentSeq hi
+        let csh = hash cs
+        initCoFreeStSug (shs,csh)
+     else do
+        atomically $ modifyTVar (hiIterator hi) (+ 1)
+        cs <- readTVarIO $ hiCurrentSeq hi
+        let csh = hash cs
+	initCoFreeStSugNL (shs,csh)
+
+upSuggestion :: Int -> SuggestionHandlerSimple a -> Hash -> a -> Maybe (Seq a)
+upSuggestion i shsa h a = do
+   cfss <- initCoFreeStSugNL (shsa,a)
+   let lssa = seqSug i $ treeSug cfss
+   return $ getFirt $ fold $ fmap (\sa-> if hash sa == h then First $ Just sa else First $ Nothing) lssa
+   
+data SuggestionPow a = SuggestionPow 
+   { spSHSA :: SuggestionHandlerSimple a
+   , spHI :: Maybe (HashInterval a)
+   , spSP :: Maybe (SuggestionPow Hash)
    }
 
+type PowSug = Int
 
+initSuggestionPow :: 
+   PowSug -> 
+   Int ->
+   MaxContext -> 
+   MaxError ->
+   GeneralRadius -> 
+   RadiusPattern -> 
+   IO (SuggestionPow a)
+initSuggestionPow ps i mc me gr rp | ps <= 0 = do
+   shs <- shsInit mc me gr rp
+   return $ SuggestionPow shs Nothing Nothing
+initSuggestionPow ps i mc me gr rp = do
+   
