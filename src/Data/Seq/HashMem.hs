@@ -59,7 +59,7 @@ initHashInterval i tvs = do
    tvsh <- newTVarIO Seq.Empty
    return $ HashInterval tvs i tck tvsh
 
-updateHI :: HashInterval a -> SuggestionHandlerSimple Hash -> IO (CoFreeStSug Hash w Hash)
+updateHI :: HashInterval a -> SuggestionHandlerSimple Hash -> IO (CoFreeStSug Hash Hash)
 updateHI hi shs = do
   k <- readTVarIO $ hiIterator hi
   if k => maxKr
@@ -74,11 +74,12 @@ updateHI hi shs = do
         let csh = hash cs
 	initCoFreeStSugNL (shs,csh)
 
-upSuggestion :: Int -> SuggestionHandlerSimple a -> Hash -> a -> Maybe (Seq a)
+upSuggestion :: Int -> SuggestionHandlerSimple a -> Hash -> a -> IO (Maybe (Seq a, StSuggestion a))
 upSuggestion i shsa h a = do
-   cfss <- initCoFreeStSugNL (shsa,a)
+   cfss <- initCoFreeStSug (shsa,a)
    let lssa = seqSug i $ treeSug cfss
-   return $ getFirt $ fold $ fmap (\sa-> if hash sa == h then First $ Just sa else First $ Nothing) lssa
+   let ss = (\(_ :< (Comp1 wl) )-> coask wl ) cfss
+   return $ getFirt $ fold $ fmap (\sa-> if hash sa == h then First $ Just (sa,ss) else First $ Nothing) lssa
    
 data SuggestionPow a = SuggestionPow 
    { spSHSA :: SuggestionHandlerSimple a
@@ -100,4 +101,35 @@ initSuggestionPow ps i mc me gr rp | ps <= 0 = do
    shs <- shsInit mc me gr rp
    return $ SuggestionPow shs Nothing Nothing
 initSuggestionPow ps i mc me gr rp = do
-   
+   shs <- shsInit mc me gr rp
+   hi <- initHashInterval i (shsCurrentContext shs)
+   sp <- initSuggestionPow (ps - 1) i mc me gr rp
+   return $ SuggestionPow shs (Just hi) (Just sp)
+
+updateSuggestionPow ::
+   SuggestionPow a ->
+   a ->
+   IO (Maybe (Seq a))
+updateSuggestionPow sp a = 
+   let mhi = spHI sp
+   let mshsh = spSP sp
+   ms <- fmap join $ mapM (\(hi,shshm,sph) -> do
+         cfss <- updateHI hi shsh
+	 msh <- updateSuggestionPow sph ((\(b :< _)-> b) cfss)
+         mh <- f msh
+         fmap join $ mapM (\h -> do
+	    msss <- upSuggestion (hashInterval hi) (spSHSA sp) h a
+	    mapM (\(s,ss) ->   
+	       updateSTSuggestion ss (spSHSA sp)
+	       return s
+	       ) msss
+	    ) mh
+      ) $ join $ mhi >>= (\hi -> mshsh >>= (\shsh -> (hi,spSHSA shsh,shsh)))
+   case ms of
+      Nothing -> do 
+         _ <- shsStepListNL (spSHSA sp) a
+	 return Nothing
+      (Just s) -> return (Just s)
+   where
+      f (Just (_ :<| (a :<| _))) = Just a
+      f _ = Nothing

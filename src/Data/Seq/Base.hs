@@ -518,17 +518,22 @@ data StSuggestion a = StSuggestion
    , stsCurrentSuggestion :: Seq (Seq a, [ViewSeqTail a])
    }
 
+updateSTSuggestion :: StSuggestion a -> SuggestionHandlerSimple a -> IO ()
+updateSTSuggestion ss shs = do
+   atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
+   atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
+
 type AdjStSugL a = Env (StSuggestion a)
 
 type AdjStSugR a = Reader (StSuggestion a)
 
 type AdjWStSug a w = W.AdjointT (AdjStSugL a) (AdjStSugR a) w
 
-type CoFreeStSug a w = Cofree ((AdjWStSug a Identity) :.: List)
+type CoFreeStSug a = Cofree ((AdjWStSug a Identity) :.: List)
 
 initCoFreeStSug :: (Eq a, Hashable a, Show a, Comonad w) =>
    (SuggestionHandlerSimple a, a) -> 
-   IO (CoFreeStSug a w a)
+   IO (CoFreeStSug a a)
 initCoFreeStSug p@(x,y) = dp
    cc' <- readTVarIO $ shsCurrentContext shs
    cs' <- readTVarIO $ shsCurrentSuggestion shs
@@ -555,7 +560,7 @@ initCoFreeStSug p@(x,y) = dp
 
 initCoFreeStSugNL :: (Eq a, Hashable a, Show a, Comonad w) =>
    (SuggestionHandlerSimple a, a) -> 
-   IO (CoFreeStSug a w a)
+   IO (CoFreeStSug a a)
 initCoFreeStSugNL p@(x,y) = dp
    cc' <- readTVarIO $ shsCurrentContext shs
    cs' <- readTVarIO $ shsCurrentSuggestion shs
@@ -581,7 +586,7 @@ initCoFreeStSugNL p@(x,y) = dp
 	 return $ (a, Comp1 $ (adjEnv ss') $ fmap (\x-> (shs,ss',x)) ls)
 
 
-treeSug :: CoFreeStSug a w a -> Tree a
+treeSug :: CoFreeStSug a a -> Tree a
 treeSug (a :< (Comp1 wla)) = Tree a (fmap treeSug $ extract wla)
 
 seqSug :: Int -> Tree a -> [Seq a]
