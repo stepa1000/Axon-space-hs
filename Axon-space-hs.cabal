@@ -32,6 +32,7 @@ library
       Data.Seq.Base
       Data.Seq.Char
       Data.Seq.Functional
+      Data.Seq.HashMem
   other-modules:
       Paths_Axon_space_hs
   autogen-modules:
@@ -53,6 +54,7 @@ library
     , either
     , fgl
     , fgl-visualize
+    , free
     , generic-lens
     , gloss
     , hashable
@@ -92,6 +94,7 @@ executable Axon-space-exe
     , either
     , fgl
     , fgl-visualize
+    , free
     , generic-lens
     , gloss
     , hashable
@@ -130,6 +133,7 @@ test-suite TreeHash-test
     , either
     , fgl
     , fgl-visualize
+    , free
     , generic-lens
     , gloss
     , hashable

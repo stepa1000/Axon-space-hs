@@ -43,6 +43,38 @@ import Data.Hashable
 import Data.Axon.Base.Types
 import Data.Seq.Base
 
+ 
+mainSHSP :: 
+   PowSug -> 
+   Int ->
+   MaxContext -> 
+   MaxError ->
+   GeneralRadius -> 
+   RadiusPattern ->
+   IO ()
+mainSHSP ps i mc me gr rp = do
+   isp <- initSuggestionPow ps i mc me gr rp
+   f isp
+   where
+      f shs = do
+         putStrLn "Write string"
+         str <- getLine
+         strn <- mapM (\c-> do
+	    mc <- updateSuggestionPow shs c
+	    case mc of
+	       (Just cn) -> return cn
+	       Nothing -> return '?'
+	    ) str
+         putStrLn "Remember string"
+         putStrLn strn
+         putStrLn "All next suggestion string"
+	 ssvs <- readTVarIO $ shsCurrentSuggestion shs
+         mapM (\ (_,lvs) -> mapM (\ vs ->
+	    putStrLn $ (Fold.fold $ fmap (\x->[x]) $ suggestion vs) ++ " : " ++ (Fold.fold $ fmap (\x->[x]) $ withoutappend vs)
+	    ) lvs) ssvs
+	 f shs
+
+
 mainSHS :: MaxContext -> 
    MaxError ->
    GeneralRadius -> 

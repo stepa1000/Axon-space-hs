@@ -38,7 +38,7 @@ dependencies:
 - time
   # - parallel
 - either
-#- free 
+- free 
 - constraints
 - stm
 - gloss
