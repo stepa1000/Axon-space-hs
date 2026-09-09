@@ -527,22 +527,18 @@ type AdjWStSug a w = W.AdjointT (AdjStSugL a) (AdjStSugR a) w
 
 type CoFreeStSug a = Cofree ((AdjWStSug a Identity) :.: List)
 
-initCoFreeStSug :: (Eq a, Hashable a, Show a, Comonad w) =>
+initCoFreeStSug :: (Eq a, Hashable a, Show a) =>
+   Int ->
    (SuggestionHandlerSimple a, a) -> 
    IO (CoFreeStSug a a)
-initCoFreeStSug p@(x,y) = do
+initCoFreeStSug i p@(x,y) = do
    cc' <- readTVarIO $ shsCurrentContext x
    cs' <- readTVarIO $ shsCurrentSuggestion x
    let ss0 = StSuggestion cc' cs'
-   unfoldM f (x, ss0  ,y)
-   where {-
-      f (shs, a) = do
-         cc <- readTVarIO $ shsCurrentContext shs
-         cs <- readTVarIO $ shsCurrentSuggestion shs
-         return $ ((case ma of 
-	    Just a -> Seq.singleton a
-	    Nothing -> Seq.empty) , (adjEnv (StSuggestion cc cs)) :.: [])-}
-      f (shs, ss, a) = do
+   f i (x, ss0  ,y)
+   where 
+      f :: (Eq a, Hashable a, Show a) => Int -> (SuggestionHandlerSimple a, StSuggestion a , a) -> IO (CoFreeStSug a a)
+      f i (shs,ss,a) | i <= 1 = do
          atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
 	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
          la <- shsStepList shs a
@@ -552,24 +548,33 @@ initCoFreeStSug p@(x,y) = do
 	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
 	 let ls = la
 	 let ss' = (StSuggestion cc' cs')
-	 return $ (a, Comp1 $ (adjEnv ss') $ fmap (\x-> (shs,ss',x)) ls)
+	 --cf <- f (i - 1) $ fmap (\x-> (shs,ss',x)) ls
+	 return $ (a Cofree.:<) $ Comp1 $ fmap (const []) (adjEnv ss' (Identity ())) 
+      f i (shs, ss, a) = do
+         atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
+	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
+         la <- shsStepList shs a
+         cc' <- readTVarIO $ shsCurrentContext shs
+         cs' <- readTVarIO $ shsCurrentSuggestion shs
+         atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
+	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
+	 let ls = la
+	 let ss' = (StSuggestion cc' cs')
+	 cf <- mapM (f (i - 1)) $ fmap (\x-> (shs,ss',x)) ls
+	 return $ (a Cofree.:<) $ Comp1 $ fmap (const cf) (adjEnv ss' (Identity ()))
 
 initCoFreeStSugNL :: (Eq a, Hashable a, Show a, Comonad w) =>
+   Int ->
    (SuggestionHandlerSimple a, a) -> 
    IO (CoFreeStSug a a)
-initCoFreeStSugNL p@(x,y) = do
+initCoFreeStSugNL i p@(x,y) = do
    cc' <- readTVarIO $ shsCurrentContext x
    cs' <- readTVarIO $ shsCurrentSuggestion x
    let ss0 = StSuggestion cc' cs'
-   unfoldM f (x, ss0  ,y)
-   where {-
-      f (shs, a) = do
-         cc <- readTVarIO $ shsCurrentContext shs
-         cs <- readTVarIO $ shsCurrentSuggestion shs
-         return $ ((case ma of 
-	    Just a -> Seq.singleton a
-	    Nothing -> Seq.empty) , (adjEnv (StSuggestion cc cs)) :.: [])-}
-      f (shs, ss, a) = do
+   f i (x, ss0  ,y)
+   where 
+      f :: (Eq a, Hashable a, Show a) => Int -> (SuggestionHandlerSimple a, StSuggestion a , a) -> IO (CoFreeStSug a a)
+      f i (shs,ss,a) | i <= 1 = do
          atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
 	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
          la <- shsStepListNL shs a
@@ -579,8 +584,20 @@ initCoFreeStSugNL p@(x,y) = do
 	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
 	 let ls = la
 	 let ss' = (StSuggestion cc' cs')
-	 return $ (a, Comp1 $ (adjEnv ss') $ fmap (\x-> (shs,ss',x)) ls)
-
+	 --cf <- f (i - 1) $ fmap (\x-> (shs,ss',x)) ls
+	 return $ (a Cofree.:<) $ Comp1 $ fmap (const []) (adjEnv ss' (Identity ()))
+      f i (shs, ss, a) = do
+         atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
+	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
+         la <- shsStepListNL shs a
+         cc' <- readTVarIO $ shsCurrentContext shs
+         cs' <- readTVarIO $ shsCurrentSuggestion shs
+         atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
+	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
+	 let ls = la
+	 let ss' = (StSuggestion cc' cs')
+	 cf <- mapM (f (i - 1)) $ fmap (\x-> (shs,ss',x)) ls
+	 return $ a Cofree.:< (Comp1 $ fmap (const cf) (adjEnv ss' (Identity ())))
 
 treeSug :: CoFreeStSug a a -> Tree a
 treeSug (a Cofree.:< (Comp1 wla)) = Node a (fmap treeSug $ extract wla)
