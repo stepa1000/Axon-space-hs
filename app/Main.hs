@@ -13,7 +13,7 @@ import Data.Set as Set
 import Visual
 import Char
 
-main = mainSHSP
+main = mainCharSHS 
 -- mainCharSHS
 --main = mainChar 
 -- mainPingPong

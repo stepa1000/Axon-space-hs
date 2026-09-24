@@ -42,7 +42,7 @@ import Data.Hashable
 
 import Data.Axon.Base.Types
 import Data.Seq.Base
-
+import Data.Seq.HashMem
  
 mainSHSP :: 
    PowSug -> 
@@ -63,18 +63,18 @@ mainSHSP ps i mc me gr rp = do
 	    mc <- updateSuggestionPow shs c
 	    case mc of
 	       (Just cn) -> return cn
-	       Nothing -> return '?'
+	       Nothing -> return $ Seq.singleton '?'
 	    ) str
          putStrLn "Remember string"
-         putStrLn strn
-         putStrLn "All next suggestion string"
-	 ssvs <- readTVarIO $ shsCurrentSuggestion shs
-         mapM (\ (_,lvs) -> mapM (\ vs ->
-	    putStrLn $ (Fold.fold $ fmap (\x->[x]) $ suggestion vs) ++ " : " ++ (Fold.fold $ fmap (\x->[x]) $ withoutappend vs)
-	    ) lvs) ssvs
+         putStrLn $ show strn
+         --putStrLn "All next suggestion string"
+	 --ssvs <- readTVarIO $ shsCurrentSuggestion shs
+         --mapM (\ (_,lvs) -> mapM (\ vs ->
+	 --   putStrLn $ (Fold.fold $ fmap (\x->[x]) $ suggestion vs) ++ " : " ++ (Fold.fold $ fmap (\x->[x]) $ withoutappend vs)
+	 --   ) lvs) ssvs
 	 f shs
 
-
+{-
 mainSHS :: MaxContext -> 
    MaxError ->
    GeneralRadius -> 
@@ -91,7 +91,7 @@ mainSHS mc me gr rp = do
 	    mc <- shsStep shs c
 	    case mc of
 	       (Just cn) -> return cn
-	       Nothing -> return '?'
+	       Nothing -> return "?"
 	    ) str
          putStrLn "Remember string"
          putStrLn strn
@@ -101,7 +101,7 @@ mainSHS mc me gr rp = do
 	    putStrLn $ (Fold.fold $ fmap (\x->[x]) $ suggestion vs) ++ " : " ++ (Fold.fold $ fmap (\x->[x]) $ withoutappend vs)
 	    ) lvs) ssvs
 	 f shs
-	 
+	 -}
 shsInitChar1 :: 
    MaxContext -> 
    MaxError ->
@@ -109,8 +109,8 @@ shsInitChar1 ::
    RadiusPattern ->
    IO (SuggestionHandlerSimple Char)
 shsInitChar1 mc me gr rp = do
-  shsInit Nothing mc me gr rp
-
+  shsInit mc me gr rp
+{-
 shsInitChar3 :: 
    MaxContext -> 
    MaxError ->
@@ -121,7 +121,8 @@ shsInitChar3 mc me gr rp = do
   shs3 <- shsInit Nothing mc me gr rp
   shs2 <- shsInit (Just shs3) mc me gr rp
   shsInit (Just shs2) mc me gr rp
-
+-}
+{-
 initSuggestionHandlerChar :: 
    MaxContext -> 
    MaxError -> 
@@ -171,4 +172,4 @@ initSuggestionHandlerChar mc me gr rp = do
          atomically $ writeTVar tstrSug ""
          str <- getLine
 	 f str tstr tstrSug
-
+-}

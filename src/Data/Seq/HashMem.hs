@@ -9,6 +9,8 @@ module Data.Seq.HashMem where
 
 import Prelude as P
 
+import GHC.Generics
+
 import Control.Monad.STM
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM.TArray
@@ -19,6 +21,7 @@ import Graphics.Gloss.Data.Color
 import Data.Ix
 import Data.Functor.Adjunction
 import Control.Comonad
+import Control.Comonad.Cofree as Cofree
 import Control.Comonad.Env
 import Control.Monad.Reader
 import Control.Comonad.Trans.Adjoint as W
@@ -56,30 +59,30 @@ data HashInterval a = HashInterval
 initHashInterval :: Int -> TVar (Seq a) -> IO (HashInterval a)
 initHashInterval i tvs = do
    tck <- newTVarIO 0
-   tvsh <- newTVarIO Seq.Empty
-   return $ HashInterval tvs i tck tvsh
+   --tvsh <- newTVarIO Seq.Empty
+   return $ HashInterval tvs i tck
 
-updateHI :: HashInterval a -> SuggestionHandlerSimple Hash -> IO (CoFreeStSug Hash Hash)
+updateHI :: Hashable a => HashInterval a -> SuggestionHandlerSimple Hash -> IO (CoFreeStSug Hash Hash)
 updateHI hi shs = do
   k <- readTVarIO $ hiIterator hi
-  if k => maxKr
+  if k >= (hashInterval hi)
      then do
         atomically $ writeTVar (hiIterator hi) 0
         cs <- readTVarIO $ hiCurrentSeq hi
         let csh = hash cs
-        initCoFreeStSug (shs,csh)
+        initCoFreeStSug (hashInterval hi) (shs,csh)
      else do
         atomically $ modifyTVar (hiIterator hi) (+ 1)
         cs <- readTVarIO $ hiCurrentSeq hi
         let csh = hash cs
-	initCoFreeStSugNL (shs,csh)
+	initCoFreeStSugNL (hashInterval hi) (shs,csh)
 
-upSuggestion :: Int -> SuggestionHandlerSimple a -> Hash -> a -> IO (Maybe (Seq a, StSuggestion a))
+upSuggestion :: (Hashable a, Show a) => Int -> SuggestionHandlerSimple a -> Hash -> a -> IO (Maybe (Seq a, StSuggestion a))
 upSuggestion i shsa h a = do
-   cfss <- initCoFreeStSug (shsa,a)
+   cfss <- initCoFreeStSug i (shsa,a)
    let lssa = seqSug i $ treeSug cfss
-   let ss = (\(_ :< (Comp1 wl) )-> coask wl ) cfss
-   return $ getFirt $ fold $ fmap (\sa-> if hash sa == h then First $ Just (sa,ss) else First $ Nothing) lssa
+   let ss = (\(_ Cofree.:< (Comp1 wl) )-> coask wl ) cfss
+   return $ getFirst $ Fold.fold $ fmap (\sa-> if hash sa == h then First $ Just (sa,ss) else First $ Nothing) lssa
    
 data SuggestionPow a = SuggestionPow 
    { spSHSA :: SuggestionHandlerSimple a
@@ -89,7 +92,7 @@ data SuggestionPow a = SuggestionPow
 
 type PowSug = Int
 
-initSuggestionPow :: 
+initSuggestionPow :: (Hashable a, Show a) =>
    PowSug -> 
    Int ->
    MaxContext -> 
@@ -106,25 +109,30 @@ initSuggestionPow ps i mc me gr rp = do
    sp <- initSuggestionPow (ps - 1) i mc me gr rp
    return $ SuggestionPow shs (Just hi) (Just sp)
 
-updateSuggestionPow ::
+updateSuggestionPow :: (Hashable a, Show a) =>
    SuggestionPow a ->
    a ->
    IO (Maybe (Seq a))
-updateSuggestionPow sp a = 
+updateSuggestionPow sp a = do
    let mhi = spHI sp
    let mshsh = spSP sp
    ms <- fmap join $ mapM (\(hi,shshm,sph) -> do
-         cfss <- updateHI hi shsh
-	 msh <- updateSuggestionPow sph ((\(b :< _)-> b) cfss)
-         mh <- f msh
+         cfss <- updateHI hi shshm
+	 let lb = getSecondListCFSS cffss
+	 mapM (\b-> do
+            seqPreUSP <- readTVarIO $ hiCurrentSeq hi
+	    msh <- updateSuggestionPow sph b
+	    seqPostUSP <- readTVarIO $ hiCurrentSeq hi
+	    ) lb
+	          let mh = f msh
          fmap join $ mapM (\h -> do
 	    msss <- upSuggestion (hashInterval hi) (spSHSA sp) h a
-	    mapM (\(s,ss) ->   
+	    mapM (\(s,ss) -> do  
 	       updateSTSuggestion ss (spSHSA sp)
 	       return s
 	       ) msss
 	    ) mh
-      ) $ join $ mhi >>= (\hi -> mshsh >>= (\shsh -> (hi,spSHSA shsh,shsh)))
+      ) $ join $ mhi >>= (\hi -> mshsh >>= (\shsh -> return $ return (hi,spSHSA shsh,shsh)))
    case ms of
       Nothing -> do 
          _ <- shsStepListNL (spSHSA sp) a

@@ -53,9 +53,10 @@ import Data.Seq.Base
 import Data.Seq.Char
 
 mainCharSHS :: IO ()
-mainCharSHS = mainSHS 6 0.05 0.80 3
+mainCharSHS = mainSHSP 2 6 6 0.05 3 3
 
+{-
 mainChar :: IO ()
 mainChar = do
    sh <- initSuggestionHandlerChar 6 0.05 0.80 6
-   updateZLSuggestion sh
+   updateZLSuggestion sh-}

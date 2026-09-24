@@ -255,8 +255,8 @@ checkSuggestion tvs tvsugg = do
 	 hss <- fmap (Fold.foldl HSet.union HSet.empty) $ mapM (\(sc,lvst) -> do
 	    ls <- fmap catMaybes $ mapM (\ vst -> do
 	       let was = withoutappend vst
-               putStrLn $ "Full:Suggestion: " ++ (show $ suggestion vst)
-	       putStrLn $ "Suggestion: " ++ (show was)
+               --putStrLn $ "Full:Suggestion: " ++ (show $ suggestion vst)
+	       --putStrLn $ "Suggestion: " ++ (show was)
 	       if Seq.null was then return Nothing
 	          else do
 		     let firstA = fromJust $ was Seq.!? 0
@@ -287,8 +287,8 @@ checkSuggestionList tvs tvsugg = do
 	 hss <- fmap (Fold.foldl HSet.union HSet.empty) $ mapM (\(sc,lvst) -> do
 	    ls <- fmap catMaybes $ mapM (\ vst -> do
 	       let was = withoutappend vst
-               putStrLn $ "Full:Suggestion: " ++ (show $ suggestion vst)
-	       putStrLn $ "Suggestion: " ++ (show was)
+               --putStrLn $ "Full:Suggestion: " ++ (show $ suggestion vst)
+	       --putStrLn $ "Suggestion: " ++ (show was)
 	       if Seq.null was then return Nothing
 	          else do
 		     let firstA = fromJust $ was Seq.!? 0
@@ -527,6 +527,9 @@ type AdjWStSug a w = W.AdjointT (AdjStSugL a) (AdjStSugR a) w
 
 type CoFreeStSug a = Cofree ((AdjWStSug a Identity) :.: List)
 
+getSecondListCFSS :: CoFreeStSug a a -> [a]
+getSecondListCFSS (_ Cofree.:< (Comp1 flb)) = fmap (\(b Cofree.:< _)-> b) $ extract flb
+
 initCoFreeStSug :: (Eq a, Hashable a, Show a) =>
    Int ->
    (SuggestionHandlerSimple a, a) -> 
@@ -563,7 +566,7 @@ initCoFreeStSug i p@(x,y) = do
 	 cf <- mapM (f (i - 1)) $ fmap (\x-> (shs,ss',x)) ls
 	 return $ (a Cofree.:<) $ Comp1 $ fmap (const cf) (adjEnv ss' (Identity ()))
 
-initCoFreeStSugNL :: (Eq a, Hashable a, Show a, Comonad w) =>
+initCoFreeStSugNL :: (Eq a, Hashable a, Show a) =>
    Int ->
    (SuggestionHandlerSimple a, a) -> 
    IO (CoFreeStSug a a)
@@ -604,5 +607,5 @@ treeSug (a Cofree.:< (Comp1 wla)) = Node a (fmap treeSug $ extract wla)
 
 seqSug :: Int -> Tree a -> [Seq a]
 seqSug i (Node a _) | i <= 0 = [Seq.singleton a]
-seqSug i (Node a l) = fmap (\x-> a :<| x) $ join $ fmap (seqSug i - 1) l
+seqSug i (Node a l) = fmap (\x-> a :<| x) $ join $ fmap (seqSug (i - 1)) l
 seqSug i (Node a []) = [Seq.singleton a]
