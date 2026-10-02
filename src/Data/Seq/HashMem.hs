@@ -43,7 +43,7 @@ import Data.Sequence as Seq
 import Data.Monoid
 import Data.Hashable
 import Data.Maybe
-import Data.List
+import Data.List as List
 -- import Control.Monad.LogicState
 
 import Data.Axon.Base.Types
@@ -58,7 +58,7 @@ data HashInterval a = HashInterval
 
 initHashInterval :: Int -> TVar (Seq a) -> IO (HashInterval a)
 initHashInterval i tvs = do
-   tck <- newTVarIO 0
+   tck <- newTVarIO i
    --tvsh <- newTVarIO Seq.Empty
    return $ HashInterval tvs i tck
 
@@ -69,11 +69,13 @@ updateHI hi shs = do
      then do
         atomically $ writeTVar (hiIterator hi) 0
         cs <- readTVarIO $ hiCurrentSeq hi
+        putStrLn $ "hiCurrentSeq: " ++ (show $ Seq.length cs)
         let csh = hash cs
         initCoFreeStSug (hashInterval hi) (shs,csh)
      else do
         atomically $ modifyTVar (hiIterator hi) (+ 1)
         cs <- readTVarIO $ hiCurrentSeq hi
+        putStrLn $ "hiCurrentSeq: " ++ (show $ Seq.length cs)	
         let csh = hash cs
 	initCoFreeStSugNL (hashInterval hi) (shs,csh)
 
@@ -81,6 +83,7 @@ upSuggestion :: (Hashable a, Show a) => Int -> SuggestionHandlerSimple a -> Hash
 upSuggestion i shsa h a = do
    cfss <- initCoFreeStSug i (shsa,a)
    let lssa = seqSug i $ treeSug cfss
+   putStrLn $ "upSuggestion: " ++ (show $ List.length lssa)
    let ss = (\(_ Cofree.:< (Comp1 wl) )-> coask wl ) cfss
    return $ getFirst $ Fold.fold $ fmap (\sa-> if hash sa == h then First $ Just (sa,ss) else First $ Nothing) lssa
    
@@ -109,35 +112,75 @@ initSuggestionPow ps i mc me gr rp = do
    sp <- initSuggestionPow (ps - 1) i mc me gr rp
    return $ SuggestionPow shs (Just hi) (Just sp)
 
+data FunDecision a = FunDecision
+   ( HashInterval Hash ->
+     SuggestionPow a ->
+     [ ([Seq Hash], Seq Hash)] -> 
+     IO ([Seq Hash])
+   , Maybe (FunDecision Hash)
+   )
+
+unFD (FunDecision p) = p
+
+defaultFunDecision :: FunDecision a
+defaultFunDecision = FunDecision 
+   ( \ hih sp lmhsh -> do
+      let mhsh = List.uncons lmhsh
+      putStrLn $ "Length FunDecision input: " ++ (show $ List.length lmhsh)
+      fmap (join . maybeToList) $ mapM (\ ((msh,sh),_) -> do
+         atomically $ writeTVar (hiCurrentSeq hih) sh
+	 return msh
+	 ) mhsh
+   , Nothing
+   )
+
 updateSuggestionPow :: (Hashable a, Show a) =>
+   FunDecision a ->
    SuggestionPow a ->
    a ->
-   IO (Maybe (Seq a))
-updateSuggestionPow sp a = do
+   IO [Seq a]
+updateSuggestionPow g sp a = do
    let mhi = spHI sp
    let mshsh = spSP sp
    ms <- fmap join $ mapM (\(hi,shshm,sph) -> do
          cfss <- updateHI hi shshm
-	 let lb = getSecondListCFSS cffss
-	 mapM (\b-> do
-            seqPreUSP <- readTVarIO $ hiCurrentSeq hi
-	    msh <- updateSuggestionPow sph b
-	    seqPostUSP <- readTVarIO $ hiCurrentSeq hi
-	    ) lb
-	          let mh = f msh
+	 let lb = getSecondListCFSS cfss
+	 putStrLn $ "Length updateHI: " ++ (show $ List.length lb)
+	 let mhih = spHI sph
+	 lsh <- fmap join $ mapM (\hih-> do   
+	    llshns <- mapM (\b-> do
+               seqPreUSP <- readTVarIO $ hiCurrentSeq hih
+	       lsh <- updateSuggestionPow (fromMaybe defaultFunDecision $ snd $ unFD g) sph b
+	       seqPostUSP <- readTVarIO $ hiCurrentSeq hih
+	       atomically $ writeTVar (hiCurrentSeq hih) seqPreUSP
+	       return (lsh, seqPostUSP)
+	       ) lb
+	    (fst $ unFD g) hih sp llshns
+	    ) mhih
+	 let lh = fmap f lsh
          fmap join $ mapM (\h -> do
 	    msss <- upSuggestion (hashInterval hi) (spSHSA sp) h a
 	    mapM (\(s,ss) -> do  
 	       updateSTSuggestion ss (spSHSA sp)
 	       return s
 	       ) msss
-	    ) mh
+	    ) lh
       ) $ join $ mhi >>= (\hi -> mshsh >>= (\shsh -> return $ return (hi,spSHSA shsh,shsh)))
    case ms of
       Nothing -> do 
-         _ <- shsStepListNL (spSHSA sp) a
-	 return Nothing
+         la <- shsStepList (spSHSA sp) a
+         cc <- readTVarIO $ shsCurrentContext $ spSHSA sp
+         cs <- readTVarIO $ shsCurrentSuggestion $ spSHSA sp
+	 ls <- mapM (\b-> do
+	    lb <- shsStepListNL (spSHSA sp) b
+            atomically $ writeTVar (shsCurrentContext $ spSHA sp) cc
+	    atomically $ writeTVar (shsCurrentSuggestion $ spSHA sp) cs
+	    return $ fmap (\ b2 -> b :<| (Seq.singleton b2)) lb
+	    ) la
+	 putStrLn $ "mhi: " ++ (show $ isJust mhi)
+	 putStrLn $ "mshsh: " ++ (show $ isJust mshsh)
+         return ls -- $ fmap (\a2->  :<| (Seq.singleton a2)) $ (\ma2-> ma2 >>= (\a2-> )) $ join fmap listToMaybe mla2
       (Just s) -> return (Just s)
    where
-      f (Just (_ :<| (a :<| _))) = Just a
+      f (_ :<| (a :<| _ )) = Just a
       f _ = Nothing
