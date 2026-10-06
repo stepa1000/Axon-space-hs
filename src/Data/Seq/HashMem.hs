@@ -142,13 +142,13 @@ updateSuggestionPow :: (Hashable a, Show a) =>
 updateSuggestionPow g sp a = do
    let mhi = spHI sp
    let mshsh = spSP sp
-   ms <- fmap join $ mapM (\(hi,shshm,sph) -> do
+   ls1 <- fmap (join . fmap maybeToList . join . maybeToList) $ mapM (\(hi,shshm,sph) -> do
          cfss <- updateHI hi shshm
 	 let lb = getSecondListCFSS cfss
 	 putStrLn $ "Length updateHI: " ++ (show $ List.length lb)
 	 let mhih = spHI sph
-	 lsh <- fmap join $ mapM (\hih-> do   
-	    llshns <- mapM (\b-> do
+	 lsh <- mapM (\hih-> do   
+	    llshns <-  mapM (\b-> do
                seqPreUSP <- readTVarIO $ hiCurrentSeq hih
 	       lsh <- updateSuggestionPow (fromMaybe defaultFunDecision $ snd $ unFD g) sph b
 	       seqPostUSP <- readTVarIO $ hiCurrentSeq hih
@@ -157,30 +157,31 @@ updateSuggestionPow g sp a = do
 	       ) lb
 	    (fst $ unFD g) hih sp llshns
 	    ) mhih
-	 let lh = fmap f lsh
-         fmap join $ mapM (\h -> do
+	 let lh = catMaybes $ fmap f $ join $ maybeToList lsh
+         mapM (\h -> do
 	    msss <- upSuggestion (hashInterval hi) (spSHSA sp) h a
 	    mapM (\(s,ss) -> do  
-	       updateSTSuggestion ss (spSHSA sp)
+	       --updateSTSuggestion ss (spSHSA sp)
 	       return s
 	       ) msss
 	    ) lh
       ) $ join $ mhi >>= (\hi -> mshsh >>= (\shsh -> return $ return (hi,spSHSA shsh,shsh)))
-   case ms of
-      Nothing -> do 
+   putStrLn $ "Data element: " ++ (show a)
+   case ls1 of
+      [] -> do 
          la <- shsStepList (spSHSA sp) a
          cc <- readTVarIO $ shsCurrentContext $ spSHSA sp
          cs <- readTVarIO $ shsCurrentSuggestion $ spSHSA sp
 	 ls <- mapM (\b-> do
 	    lb <- shsStepListNL (spSHSA sp) b
-            atomically $ writeTVar (shsCurrentContext $ spSHA sp) cc
-	    atomically $ writeTVar (shsCurrentSuggestion $ spSHA sp) cs
+            atomically $ writeTVar (shsCurrentContext $ spSHSA sp) cc
+	    atomically $ writeTVar (shsCurrentSuggestion $ spSHSA sp) cs
 	    return $ fmap (\ b2 -> b :<| (Seq.singleton b2)) lb
 	    ) la
 	 putStrLn $ "mhi: " ++ (show $ isJust mhi)
 	 putStrLn $ "mshsh: " ++ (show $ isJust mshsh)
-         return ls -- $ fmap (\a2->  :<| (Seq.singleton a2)) $ (\ma2-> ma2 >>= (\a2-> )) $ join fmap listToMaybe mla2
-      (Just s) -> return (Just s)
+         return $ join ls -- $ fmap (\a2->  :<| (Seq.singleton a2)) $ (\ma2-> ma2 >>= (\a2-> )) $ join fmap listToMaybe mla2
+      l -> return l
    where
       f (_ :<| (a :<| _ )) = Just a
       f _ = Nothing

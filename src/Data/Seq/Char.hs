@@ -61,12 +61,17 @@ mainSHSP ps i mc me gr rp = do
          str <- getLine
          strn <- mapM (\c-> do
 	    mc <- updateSuggestionPow defaultFunDecision shs c
-	    case mc of
-	       (Just cn) -> return cn
-	       Nothing -> return $ Seq.singleton '?'
+	    -- putStrLn "Remember strings"
+	    return mc
+	    --mapM (\s-> do
+	    --   putStrLn $ show s
+	    --   ) mc
 	    ) str
-         putStrLn "Remember string"
-         putStrLn $ show $ Fold.toList strn
+         putStrLn "Remember strings"
+	 mapM (\s-> do
+	    putStrLn $ show $ fmap Fold.fold $ (fmap . fmap) (\x->[x]) s
+	    return s
+	    ) strn
          --putStrLn "All next suggestion string"
 	 --ssvs <- readTVarIO $ shsCurrentSuggestion shs
          --mapM (\ (_,lvs) -> mapM (\ vs ->

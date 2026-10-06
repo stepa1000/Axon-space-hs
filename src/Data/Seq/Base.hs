@@ -267,8 +267,8 @@ checkSuggestion tvs tvsugg = do
 	    return hss
 	    ) cs
 	 let (midle, _, _) = generalizationPattern 0.2 hss
-         putStrLn $ "Length midle: " ++ (show $ Seq.length midle)
-         putStrLn $ "Length HashSet: " ++ (show $ HSet.size hss)
+         --putStrLn $ "Length midle: " ++ (show $ Seq.length midle)
+         --putStrLn $ "Length HashSet: " ++ (show $ HSet.size hss)
 	 if Seq.null midle
 	    then if HSet.null hss
 	       then return Seq.empty
@@ -299,27 +299,11 @@ checkSuggestionList tvs tvsugg = do
 	    return hss
 	    ) cs
 	 let (midle, _, _) = generalizationPattern 0.2 hss
-         putStrLn $ "Length midle: " ++ (show $ Seq.length midle)
-         putStrLn $ "Length HashSet: " ++ (show $ HSet.size hss)
+         --putStrLn $ "Length midle: " ++ (show $ Seq.length midle)
+         --putStrLn $ "Length HashSet: " ++ (show $ HSet.size hss)
 	 return $ HSet.toList hss
       else return []-- Seq.Empty
-{-
-updatePowSuggestion ::  (Eq a, Hashable a, Show a) => Maybe (SuggestionHandlerSimple (Seq a)) -> Seq a -> IO (Maybe (Seq a))
-updatePowSuggestion mshs sa = do
-   fmap join $ mapM (\shs-> do
-      if Seq.null sa then return Nothing
-         else do
-	    shsStep shs sa
-      ) mshs
 
-updatePowSuggestionList ::  (Eq a, Hashable a, Show a) => Maybe (SuggestionHandlerSimple (Seq a)) -> [Seq a] -> IO [Seq a]
-updatePowSuggestionList mshs sa = do
-   fmap join $ mapM (\shs-> do
-      if P.null sa then return Nothing
-         else do
-	    shsStepList shs sa
-      ) mshs
--}
 lerningS :: (Eq a, Hashable a) => 
    SuggestionHandlerSimple a ->
    TVar (Seq a) -> 
@@ -357,12 +341,12 @@ checkViewList sh {-ts-} mS tvc tvs tns = do
 	 --putStrLn "Lern"
 	 return [] -- Nothing
       else do
-	 let hsswa = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap ((\x-> if Seq.null x then HSet.empty else HSet.singleton x) . withoutappend) . snd) nssvst
+	 --let hsswa = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap ((\x-> if Seq.null x then HSet.empty else HSet.singleton x) . withoutappend) . snd) nssvst
          let hsSn = Fold.foldl HSet.union HSet.empty $ fmap (\s-> if Seq.null s then HSet.empty else HSet.singleton s) mS
-	 let hsswa' = HSet.map (\wa-> Seq.index wa 0) hsswa
-	 let hsSn' = HSet.map (\wa-> Seq.index wa 0) hsSn
+	 --let hsswa' = HSet.map (\wa-> Seq.index wa 0) hsswa
+	 let hsSn' = HSet.map (\wa-> Seq.lookup 1 wa) hsSn
          atomically $ writeTVar tvs nssvst 
-         return $ HSet.toList $ HSet.union hsswa' hsSn'
+         return $ catMaybes $ HSet.toList {-$ HSet.union hsswa'-} hsSn'
 
 checkViewListNoLern :: (Eq a, Hashable a) =>
    SuggestionHandlerSimple a ->
@@ -376,12 +360,12 @@ checkViewListNoLern sh {-ts-} mS tvc tvs tns = do
    cs <- readTVarIO tvs 
    ns <- readTVarIO tns
    let nssvst = viewGeneralLTailUp cc ns
-   let hsswa = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap ((\x-> if Seq.null x then HSet.empty else HSet.singleton x) . withoutappend) . snd) nssvst
+   --let hsswa = Fold.foldl HSet.union HSet.empty $ fmap (Fold.foldl HSet.union HSet.empty . fmap ((\x-> if Seq.null x then HSet.empty else HSet.singleton x) . withoutappend) . snd) nssvst
    let hsSn = Fold.foldl HSet.union HSet.empty $ fmap (\s-> if Seq.null s then HSet.empty else HSet.singleton s) mS
-   let hsswa' = HSet.map (\wa-> Seq.index wa 0) hsswa
-   let hsSn' = HSet.map (\wa-> Seq.index wa 0) hsSn
+   --let hsswa' = HSet.map (\wa-> Seq.index wa 0) hsswa
+   let hsSn' = HSet.map (\wa-> Seq.lookup 1 wa) hsSn
    atomically $ writeTVar tvs nssvst 
-   return $ HSet.toList $ HSet.union hsswa' hsSn'
+   return $ catMaybes $ HSet.toList {-$ HSet.union hsswa'-} hsSn'
 
 
 
@@ -450,14 +434,18 @@ initCoFreeStSug' g i p@(x,y :: a) = do
    cc' <- readTVarIO $ shsCurrentContext x
    cs' <- readTVarIO $ shsCurrentSuggestion x
    let ss0 = StSuggestion cc' cs'
-   f i (x, ss0  ,y)
+   cfss <- f i (x, ss0  ,y)
+   --atomically $ writeTVar (shsCurrentContext x) (stsContext ss0)
+   --atomically $ writeTVar (shsCurrentSuggestion x) (stsCurrentSuggestion ss0)
+   return cfss
    where 
       f :: (Eq a, Hashable a, Show a) => Int -> (SuggestionHandlerSimple a, StSuggestion a , a) -> IO (CoFreeStSug a a)
-      f i (shs,ss,a) | i <= 1 = do
+      f j (shs,ss,a) | j <= 1 = do
          atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
 	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
-         la <- g shs a
-	 putStrLn $ "shsStep out length: " ++ (show $ List.length la)
+         --la <- g shs a
+	 la <- shsStepListNL shs a
+	 --putStrLn $ "shsStep out length: " ++ (show $ List.length la)
          cc' <- readTVarIO $ shsCurrentContext shs
          cs' <- readTVarIO $ shsCurrentSuggestion shs
          atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
@@ -466,18 +454,19 @@ initCoFreeStSug' g i p@(x,y :: a) = do
 	 let ss' = (StSuggestion cc' cs')
 	 --cf <- f (i - 1) $ fmap (\x-> (shs,ss',x)) ls
 	 return $ (a Cofree.:<) $ Comp1 $ fmap (const []) (adjEnv ss' (Identity ())) 
-      f i (shs, ss, a) = do
+      f j (shs, ss, a) = do
          atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
 	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
-         la <- g shs a
-	 putStrLn $ "shsStep out length: " ++ (show $ List.length la)
+         la <- (if i == j then g shs a else shsStepListNL shs a)
+	 --putStrLn $ "shsStep out length: " ++ (show $ List.length la)
          cc' <- readTVarIO $ shsCurrentContext shs
          cs' <- readTVarIO $ shsCurrentSuggestion shs
-         atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
-	 atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
 	 let ls = la
 	 let ss' = (StSuggestion cc' cs')
-	 cf <- mapM (f (i - 1)) $ fmap (\x-> (shs,ss',x)) ls
+	 cf <- mapM (f (j - 1)) $ fmap (\x-> (shs,ss',x)) ls
+	 when (not $ i == j) $ do
+	    atomically $ writeTVar (shsCurrentContext shs) (stsContext ss)
+	    atomically $ writeTVar (shsCurrentSuggestion shs) (stsCurrentSuggestion ss)
 	 return $ (a Cofree.:<) $ Comp1 $ fmap (const cf) (adjEnv ss' (Identity ()))
 
 

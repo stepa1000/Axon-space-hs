@@ -6,3 +6,5 @@ TreeHash.cabal
 flake.nix2
 *.nix
 log
+/.prime-bin
+*.gz
