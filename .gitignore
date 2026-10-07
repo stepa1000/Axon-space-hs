@@ -8,3 +8,4 @@ flake.nix2
 log
 /.prime-bin
 *.gz
+.aider*

@@ -1,5 +1,5 @@
 {
-  description = "my project description";
+  description = "Haskell development environment with local AI";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.flake-utils.url = "github:numtide/flake-utils";
 
@@ -9,20 +9,7 @@
         pkgs = nixpkgs.legacyPackages.${system};
         hPkgs = pkgs.haskell.packages."ghc910"; 
 
-        # 1. Нативная 100% свободная FHS-песочница для подгрузки glibc к бинарнику
-        prime-agent-fhs = pkgs.buildFHSEnv {
-          name = "prime-agent-env"; # Переименовали среду, чтобы имя не конфликтовало с алиасом
-          targetPkgs = pkgs: with pkgs; [
-            glibc
-            gcc.cc.lib
-            zlib
-            openssl
-            curl
-          ];
-          runScript = "bash";
-        };
-
-        # Плагины для Neovim
+        # Плагины для Neovim с GitHub
         plugin-neocodeium = pkgs.vimUtils.buildVimPlugin {
           pname = "neocodeium";
           version = "latest";
@@ -59,6 +46,7 @@
           doCheck = false;
         };
 
+        # Конфигурация изолированного Neovim
         myNeovim = pkgs.neovim.override {
           configure = {
             customRC = ''
@@ -69,11 +57,18 @@
               set expandtab
 
               lua << EOF
+                -- Настройка встроенного LSP клиента Neovim для Haskell 0.11+
                 if vim.lsp.config then
                   vim.lsp.config('hls', {})
                   vim.lsp.enable('hls')
+                else
+                  local status, lspconfig = pcall(require, 'lspconfig')
+                  if status then
+                    lspconfig.hls.setup{}
+                  end
                 end
 
+                -- Локальный автокомплит Neocodeium (использует модель 1.5b)
                 require('neocodeium').setup({
                   server = {
                     api_url = "http://127.0.0.1:11434",
@@ -82,12 +77,14 @@
                   }
                 })
 
+                -- Инициализация диспетчера задач
                 local overseer = require('overseer')
                 overseer.setup()
 
-                vim.keymap.set('n', '<leader>t', '<cmd>OverseerToggle<cr>')
+                -- Горячие клавиши
+                vim.keymap.set('n', '<leader>t', '<cmd>OverseerToggle<cr>') -- \t для логов задач
                 vim.keymap.set('i', '<A-f>', function()
-                  require('neocodeium').accept()
+                  require('neocodeium').accept()                            -- Alt+f принять ИИ код
                 end)
               EOF
             '';
@@ -103,11 +100,11 @@
           };
         };
 
+        # Инструменты разработки среды devShell
         myDevTools = [
           myNeovim 
-          pkgs.ollama
-          pkgs.python3                # Интерпретатор для ядра ИИ
-          prime-agent-fhs             # Добавили песочницу как готовый пакет в buildInputs
+          pkgs.ollama                 # ИИ движок
+          pkgs.aider-chat             # Умный, стабильный многофайловый ИИ-архитектор
           hPkgs.ghc
           hPkgs.ghcid
           hPkgs.ormolu
@@ -162,20 +159,6 @@
         devShells.default = pkgs.mkShell {
           buildInputs = myDevTools ++ myCLibs;
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath myCLibs;
-
-          # ЧИСТЫЙ ВЫЗОВ ЧЕРЕЗ СИСТЕМНЫЙ PATH БЕЗ ОШИБОК ПРИВЕДЕНИЯ ТИПОВ
-          shellHook = ''
-            prime-agent() {
-              if [ -f "./.prime-bin/prime-agent" ]; then
-                # Нативно вызываем бинарник среды, который теперь находится в нашем PATH
-                prime-agent-env -c "./.prime-bin/prime-agent \"\$@\""
-              else
-                echo "❌ Ошибка: Бинарник ./.prime-bin/prime-agent не найден!"
-                echo "Убедитесь, что архив распакован в папку проекта в ./.prime-bin/"
-              fi
-            }
-            export -f prime-agent
-          '';
         };
       });
 }
